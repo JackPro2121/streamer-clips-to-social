@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Model weights: large (200 MB+), fetched on demand by tools/fetch_models.py in
+# the consuming repos (SHA-256 pinned). Never commit them here.
+models/*.onnx
+models/*.pth
+models/*.model
+
+# EXCEPTION: the 232 KB YuNet face detector is tracked so a fresh clone has a
+# working face detector without a network fetch.
+!models/face_detection_yunet.onnx
+
+# Runtime output dirs (only relevant when this repo is checked out standalone)
+downloads/
+clips/
+subtitles/
+data/

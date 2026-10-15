@@ -10,23 +10,22 @@
 ## Architecture
 
 ```
-main_streamer.py  ->  streamers/pipeline.py  ->  core/*  (git submodule)
+main_streamer.py  ->  streamers/pipeline.py  ->  core/*  (vendored engine)
 ```
 
 * `streamers/` — all V2-specific logic. This is where streamer changes belong.
-* `core/` — the shared engine, a **git submodule** pointing at
-  [`JackPro2121/clips-core`](https://github.com/JackPro2121/clips-core). Never
-  edit files inside `core/` from this repo: change them in `clips-core`, then
-  bump the submodule pointer here.
+* `core/` — the engine, **vendored** into this repository as an ordinary
+  directory (no submodule, nothing to initialise). It is a committed copy of
+  [`JackPro2121/clips-core`](https://github.com/JackPro2121/clips-core) at tree
+  `fef54c3f`. A plain `git clone` is all that is required:
 
 ```bash
-git submodule update --init --recursive      # after cloning
-git -C core fetch origin && git -C core checkout <tag-or-sha>
-git add core && git commit -m "chore: bump clips-core to <sha>"
+git clone https://github.com/JackPro2121/streamer-clips-to-social.git   # no --recurse-submodules
 ```
 
-Any CI checkout of this repo must set `submodules: true` (already done in
-`.github/workflows/*.yml`).
+V2 may edit `core/` directly. When a fix is engine-wide, apply it upstream in
+`clips-core` as well so the V1 podcast pipeline receives it. No CI checkout sets
+`submodules: true` any more.
 
 ---
 
@@ -109,7 +108,7 @@ Engine paths: `CLIPS_CORE_ROOT`, `CLIPS_CORE_MODELS_DIR`, `CLIPS_CORE_ASSETS_DIR
 │   ├── censor.py                  # profanity / TOS masking
 │   ├── gate.py                    # publish gate (verification verdict)
 │   └── spec.py                    # numeric spec overlay & invariant asserts
-├── core/                          # git submodule -> clips-core
+├── core/                          # vendored engine (committed copy of clips-core)
 ├── assets/                        # fonts, sfx, audio beds
 ├── tools/
 │   └── build_streamer_profile.py  # [V2] Streamer identity profiles (shared tools live in core/tools/)

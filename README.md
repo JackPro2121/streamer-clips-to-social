@@ -5,10 +5,11 @@ Shorts / Reels clips from 3–5 hour live streams (Kai Cenat, IShowSpeed, Jynxzi
 CaseOh, xQc, Adin Ross).
 
 > This is the **V2 streamer pipeline only**. The V1 podcast pipeline lives in a
-> separate repository (`podcasts-clips-to-social`). Both depend on the same
-> shared engine, [`clips-core`](https://github.com/JackPro2121/clips-core),
-> mounted here as a git submodule at `core/`. The two pipelines share **no**
-> code or credentials through this repo.
+> separate repository (`podcasts-clips-to-social`). This repo is fully
+> self-contained: its engine `core/` is a **vendored** copy of
+> [`clips-core`](https://github.com/JackPro2121/clips-core) committed directly
+> into this repository — no submodule, no shared remote. Nothing is shared with
+> V1 except the upstream engine lineage.
 
 ---
 
@@ -42,7 +43,7 @@ streamer-clips-to-social/
 │   ├── censor.py                  # profanity / TOS masking
 │   ├── gate.py                    # publish gate (verification verdict)
 │   └── spec.py                    # V2 numeric spec overlay & invariant asserts
-├── core/                          # git submodule -> clips-core (shared engine)
+├── core/                          # vendored engine (committed copy of clips-core)
 ├── assets/                        # fonts, sfx, audio beds
 ├── tools/
 │   └── build_streamer_profile.py  # [V2] Identity profiles (shared tools live in core/tools/)
@@ -51,25 +52,32 @@ streamer-clips-to-social/
 └── .github/workflows/             # streamer_clipper.yml, tests.yml
 ```
 
-### The `core/` submodule
+### The `core/` engine (vendored)
 
-The shared engine is not vendored here. There is exactly one copy of it:
+The engine is committed directly into this repository — there is no submodule
+and nothing to initialise:
 
 ```bash
-git submodule update --init --recursive   # after cloning
+git clone https://github.com/JackPro2121/streamer-clips-to-social.git   # that is all
 ```
 
-Large model weights (SFace, S3FD/SyncNet, TransNetV2) are gitignored inside
-`clips-core`. The 232 KB YuNet detector and the V2 streamer identity profiles
-ship in git; SFace is auto-downloaded on first use. Everything else is fetched
-by `core/tools/fetch_models.py` (SHA-256 pinned).
+It is a copy of `clips-core` (tree `fef54c3f`). Large model weights (SFace,
+S3FD/SyncNet, TransNetV2) are gitignored inside `core/`. The 232 KB YuNet
+detector ships in git; SFace is auto-downloaded on first use. Everything else is
+fetched by `core/tools/fetch_models.py` (SHA-256 pinned).
+
+> `core/` is kept byte-identical to the upstream `clips-core` tree. Its
+> `core/README.md` still documents the standalone `clips-core` repo (including
+> submodule instructions) — that is intentional, so `git diff` against the
+> upstream tree stays clean. Ignore the submodule steps there; this repo needs
+> none.
 
 ---
 
 ## Quickstart
 
 ```bash
-git clone --recurse-submodules https://github.com/JackPro2121/streamer-clips-to-social.git
+git clone https://github.com/JackPro2121/streamer-clips-to-social.git
 cd streamer-clips-to-social
 python -m pip install -r requirements.txt     # or: bash core/tools/install_deps.sh
 cp .env.example .env                           # then fill in the keys
@@ -116,7 +124,7 @@ and variables → Actions** for CI.
 | `GITHUB_TOKEN` | auto | Release uploads for direct asset URLs |
 
 Engine paths can be overridden with `CLIPS_CORE_ROOT`, `CLIPS_CORE_MODELS_DIR`
-and `CLIPS_CORE_ASSETS_DIR` (see the clips-core README).
+and `CLIPS_CORE_ASSETS_DIR` (see `core/README.md`).
 
 > **Never commit secrets.** They belong in `.env` (gitignored) and GitHub
 > Actions secrets only.
