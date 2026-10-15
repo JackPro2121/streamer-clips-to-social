@@ -31,10 +31,27 @@ from typing import List, Tuple
 from pydantic import BaseModel, Field
 
 from core.transcriber import TranscriptSegment
-from core.viral_detector import (
-    query_gemini_models, query_groq_free_models, query_ollama_cloud_models,
-    strip_emojis, _normalize_clip_window, _safe_int
-)
+
+# These helpers live in the shared engine. Three of them are *private* upstream
+# (`_normalize_clip_window`, `_safe_int`, `strip_emojis` is public but only by
+# accident), which makes V2 silently dependent on clips-core's private surface:
+# a rename upstream turns into an opaque ImportError at the top of the run.
+# Wrap it so the failure names the cause and points at SYNC.md.
+# tests/test_v2_audit_round2.py pins every name below so upstream drift fails in
+# CI on the PR that causes it rather than in a 90-minute publish job.
+try:
+    from core.viral_detector import (
+        query_gemini_models, query_groq_free_models, query_ollama_cloud_models,
+        strip_emojis, _normalize_clip_window, _safe_int
+    )
+except ImportError as exc:  # pragma: no cover - guard against upstream drift
+    raise ImportError(
+        "streamers.viral_detector requires the model-query helpers and the "
+        "private _normalize_clip_window/_safe_int helpers from core.viral_detector. "
+        "If this fails, clips-core renamed or removed one of them: land the change "
+        "upstream and sync both pipelines (see SYNC.md). "
+        f"Underlying error: {exc}"
+    ) from exc
 from core.config import GEMINI_API_KEY, GROQ_API_KEY, OLLAMA_API_KEY
 from streamers.spec import (
     STREAMER_MAX_CLIP_DURATION_S,
@@ -174,8 +191,14 @@ def _prescan_high_energy_zones(
         selected.append((win_start, win_end))
         excluded_ranges.append((win_start, win_end))
 
-    # Return in chronological order so model output timestamps are ascending
-    selected.sort(key=lambda x: x[0])
+    # Return best-first. This IS the documented contract ("sorted by descending
+    # excitement score") and two callers depend on it: the Groq and Ollama
+    # fallbacks use only zones[0] to stay inside their tighter context windows.
+    # A previous `selected.sort(key=lambda x: x[0])` here made zones[0] the
+    # EARLIEST window instead of the most energetic one, so both fallbacks were
+    # fed the opening minutes of the stream rather than the spike, and the
+    # function silently contradicted its own docstring. The Gemini loop labels
+    # every window explicitly, so its prompt content is unaffected by ordering.
     return selected
 
 
@@ -304,9 +327,20 @@ def parse_streamer_clips_json(
         normalized = _normalize_clip_window(start, end, segments)
         if normalized is not None:
             start, end = normalized
-            # Re-enforce cap with frame-quantisation slack (D5 post-snap guard)
+            # Re-enforce the V2 contract AFTER snapping. The shared normalizer
+            # clamps against core.config's MIN/MAX_CLIP_DURATION (defaults 30/140s),
+            # which are NOT the V2 bounds — so both ends must be re-clamped to
+            # STREAMER_* here. Previously only the upper bound was re-applied, so a
+            # snap that pulled the window under 30s produced a clip the gate could
+            # only reject, after paying for a full render and upload.
             if end - start > STREAMER_MAX_CLIP_DURATION_S + STREAMER_DURATION_QUANTIZATION_MARGIN_S:
                 end = start + STREAMER_MAX_CLIP_DURATION_S
+            if end - start < STREAMER_MIN_CLIP_DURATION_S:
+                end = min(transcript_end, max(end, start + STREAMER_MIN_CLIP_DURATION_S))
+                if end - start < STREAMER_MIN_CLIP_DURATION_S:
+                    # Too close to the transcript tail to grow forward — grow
+                    # backwards rather than emit a sub-contract clip.
+                    start = max(0.0, end - STREAMER_MIN_CLIP_DURATION_S)
         else:
             # Resilient fallback for streamer clips (bounds STREAMER_MIN_CLIP_DURATION_S to STREAMER_MAX_CLIP_DURATION_S)
             start = max(0.0, min(start, max(0.0, transcript_end - STREAMER_MIN_CLIP_DURATION_S)))
