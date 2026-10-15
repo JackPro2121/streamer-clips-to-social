@@ -61,6 +61,7 @@ from streamers.discovery import (
 from streamers.editing_enhancer import build_streamer_retention_plan
 from streamers.gate import verify_clip, GateResult
 from streamers.layout_compositor import build_streamer_framing
+from streamers.paths import assert_within, safe_output_name, slugify_title
 from streamers.spec import (
     STREAMER_MAX_CLIP_DURATION_S,
     STREAMER_MIN_CLIP_DURATION_S,
@@ -208,6 +209,25 @@ def _build_local_fallback_segments(
             )
         )
     return local
+
+
+def _visual_outcome(gate: Optional[GateResult]) -> Optional[bool]:
+    """Report the real V2 black-margin outcome, or ``None`` when it never ran.
+
+    ``None`` means "no verdict" (gate never reached / check unavailable) which is
+    materially different from ``False`` (check ran and failed).
+    """
+    if gate is None:
+        return None
+    if "v2_visual_check_unavailable" in gate.blocking_codes:
+        # The audit never produced a verdict (fail-closed). That is "no result",
+        # which is materially different from a check that ran and failed.
+        return None
+    if "v2_black_frame_margin" in gate.blocking_codes:
+        return False
+    if any(w.startswith("v2_visual_check_unavailable") for w in gate.warnings):
+        return None
+    return True
 
 
 def _print_delivery_summary(results: List[_ClipResult], *, run_id: str) -> None:
@@ -427,6 +447,20 @@ def run_streamer_pipeline(
 
             clip_duration = get_video_duration(clip_path)
 
+            # The download window is padded (-1s pre-roll / +1s post-roll) so the
+            # raw file can exceed the contract: a 45s moment arrives as ~47s.
+            # Cap the WORKING duration here so every downstream stage (dead-air
+            # cut plan, framing, subtitles, SFX, retention plan, render, EDL)
+            # operates on the same in-contract window. render_viral_clip clamps
+            # to the source, so the tail is trimmed instead of the finished clip
+            # being rejected by the gate (and charged to the VOD retry budget).
+            if clip_duration > STREAMER_MAX_CLIP_DURATION_S:
+                print(
+                    f"[*] Clip #{idx}: capping {clip_duration:.2f}s to the "
+                    f"{STREAMER_MAX_CLIP_DURATION_S:.0f}s contract (dropping post-roll)."
+                )
+                clip_duration = STREAMER_MAX_CLIP_DURATION_S
+
             # 3b. Transcription (Whisper; fallback to stream segments)
             try:
                 whisper_segments = transcribe_audio_whisper(clip_path)
@@ -474,6 +508,13 @@ def run_streamer_pipeline(
             try:
                 audio_analysis = analyze_audio_energy(clip_path)
                 peak_intervals = audio_analysis.get("peak_intervals", [])
+                if not audio_analysis.get("available", True):
+                    # Surface the degradation: a failed analysis is otherwise
+                    # indistinguishable from "no peaks found" in the output.
+                    print(
+                        f"[!] Clip #{idx}: audio analysis unavailable — "
+                        f"punch-zoom disabled for this clip."
+                    )
             except Exception as exc:
                 print(f"[!] Audio analysis failed for clip #{idx}: {exc} — disabling punch-zoom")
                 peak_intervals = []
@@ -482,7 +523,13 @@ def run_streamer_pipeline(
                 print(f"[*] {len(peak_intervals)} scream/energy peaks detected.")
 
             # 3g. Styled ASS subtitles
-            ass_path = SUBTITLES_DIR / f"streamer_clip_{idx}_{video_id}.ass"
+            # video_id is regex-validated upstream, but route it through the same
+            # allowlist so no remote-derived string is ever joined raw onto a path.
+            ass_path = assert_within(
+                SUBTITLES_DIR,
+                SUBTITLES_DIR
+                / f"streamer_clip_{idx}_{slugify_title(video_id, max_len=24)}.ass",
+            )
             try:
                 create_styled_ass_subtitles(
                     segments=clip_segments,
@@ -498,8 +545,11 @@ def run_streamer_pipeline(
                 ass_path = None  # render without subtitles if generation fails
 
             # 3h. Thumbnail
-            thumb_path = STREAMER_CLIPS_DIR / (
-                f"streamer_clip_{idx}_{vm.title.replace(' ', '_')[:30]}_thumb.jpg"
+            # Title is untrusted model output — allowlist it before it becomes a path.
+            thumb_path = assert_within(
+                STREAMER_CLIPS_DIR,
+                STREAMER_CLIPS_DIR
+                / safe_output_name(f"streamer_clip_{idx}", vm.title, "_thumb.jpg"),
             )
             try:
                 generate_clip_thumbnail(
@@ -534,8 +584,12 @@ def run_streamer_pipeline(
             )
 
             # 3k. Final FFmpeg render
-            out_clip_name = f"clip_{idx}_{vm.title.replace(' ', '_')[:32]}.mp4"
-            out_clip_path = STREAMER_CLIPS_DIR / out_clip_name
+            # The title comes from the LLM and is untrusted: allowlist it and add a
+            # fingerprint so two clips sharing a title cannot collide on disk.
+            out_clip_name = safe_output_name(f"clip_{idx}", vm.title, ".mp4")
+            out_clip_path = assert_within(
+                STREAMER_CLIPS_DIR, STREAMER_CLIPS_DIR / out_clip_name
+            )
 
             rendered = render_viral_clip(
                 source_video_path=clip_path,
@@ -697,7 +751,13 @@ def run_streamer_pipeline(
                     "passed": bool(r.gate.passed) if r.gate else False,
                     "warnings": list(r.gate.warnings) if r.gate else [],
                     "blocking_codes": list(r.gate.blocking_codes) if r.gate else [],
-                    "visual": (r.gate.__dict__.get("path") is not None and True),
+                    # Report the real black-margin outcome. The previous expression
+                    # dereferenced r.gate.__dict__ unconditionally, so any clip that
+                    # failed BEFORE the gate raised AttributeError here — and the
+                    # surrounding try swallowed it, silently skipping the whole
+                    # production report for the run.
+                    "visual": _visual_outcome(r.gate),
+                    "error": r.error,
                 }
                 for r in clip_results
             ],
@@ -777,6 +837,32 @@ def run_streamer_pipeline(
     # 6. Delivery summary
     # ------------------------------------------------------------------
     _print_delivery_summary(clip_results, run_id=run_id)
+
+    # ------------------------------------------------------------------
+    # 7. Retention sweep (bounded disk growth)
+    # ------------------------------------------------------------------
+    # Runs on the scheduled path so the checkout cannot grow forever: expired run
+    # directories, download working copies, subtitle stylesheets and derived
+    # render artifacts are removed. Rendered clips and thumbnails are
+    # deliverables and are deliberately retained. Non-fatal by design — a publish
+    # run must never fail because cleanup failed.
+    try:
+        from streamers.retention import run_retention_sweep
+
+        sweep = run_retention_sweep(
+            runs_root=runs_dir.parent,
+            downloads_dir=DOWNLOADS_DIR,
+            subtitles_dir=SUBTITLES_DIR,
+            clips_dir=STREAMER_CLIPS_DIR,
+            current_run_id=run_id,
+        )
+        if sweep["run_dirs"] or sweep["workspace_files"]:
+            print(
+                f"[*] Retention sweep removed {len(sweep['run_dirs'])} run dir(s) "
+                f"and {len(sweep['workspace_files'])} workspace file(s)."
+            )
+    except Exception as exc:
+        print(f"[!] Retention sweep failed (non-fatal): {exc}")
 
     rendered_ok = [r.rendered for r in clip_results if r.succeeded]
     return rendered_ok

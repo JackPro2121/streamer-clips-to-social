@@ -53,13 +53,6 @@ PROFANITY_MAP: Dict[str, str] = {
     "rape": "r*pe",
 }
 
-# Compile case-insensitive word-boundary regex patterns
-_CENSOR_PATTERNS = [
-    (re.compile(rf"\b{re.escape(k)}\b", re.IGNORECASE), v)
-    for k, v in PROFANITY_MAP.items()
-]
-
-
 def censor_word_text(word: str) -> str:
     """Masks profanity in a single word while preserving case and trailing punctuation."""
     if not word:

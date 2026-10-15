@@ -8,10 +8,11 @@ High-performance audio waveform analyzer for detecting:
 """
 
 import subprocess
-import numpy as np
-from pathlib import Path
-from typing import List, Tuple, Dict
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
+import numpy as np
 
 
 @dataclass
@@ -23,23 +24,42 @@ class AudioEnergyPeak:
     is_scream: bool
 
 
+def _unavailable(reason: str = "") -> Dict[str, Any]:
+    """Result shape for "the waveform was never analysed".
+
+    ``available=False`` exists so the caller can tell "no peaks found" apart from
+    "analysis could not run". Previously both returned an empty ``peak_intervals``,
+    so a failed extraction silently disabled punch-zoom with no signal anywhere.
+    """
+    if reason:
+        print(f"[!] Audio analysis unavailable: {reason}")
+    return {
+        "available": False,
+        "median_db": -60.0,
+        "max_db": -60.0,
+        "peaks": [],
+        "peak_intervals": [],
+    }
+
+
 def analyze_audio_energy(
     media_path: Path,
     sample_rate: int = 16000,
     window_sec: float = 0.5,
     hop_sec: float = 0.25,
     scream_delta_db: float = 6.5
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """Analyzes audio waveform for instantaneous loudness spikes and scream moments.
 
     Returns dict with:
+        available: bool                            # False when extraction failed
         median_db: float
         max_db: float
         peaks: List[AudioEnergyPeak]
         peak_intervals: List[Tuple[float, float]]  # (start, end) suitable for punch zooms
     """
     if not media_path.exists():
-        return {"median_db": -60.0, "max_db": -60.0, "peaks": [], "peak_intervals": []}
+        return _unavailable(f"{media_path.name} does not exist")
 
     cmd = [
         "ffmpeg", "-y", "-i", str(media_path),
@@ -47,20 +67,29 @@ def analyze_audio_energy(
         "-vn", "-"
     ]
 
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         raw_audio, _ = proc.communicate(timeout=60)
+    except subprocess.TimeoutExpired:
+        # Kill AND reap. An orphaned ffmpeg keeps decoding and holds the source
+        # file open, which blocks its deletion (notably on Windows).
+        proc.kill()
+        try:
+            proc.communicate(timeout=10)
+        except Exception:  # pragma: no cover - best-effort reap
+            pass
+        return _unavailable(f"ffmpeg timed out after 60s on {media_path.name}")
     except Exception as exc:
-        print(f"[!] Audio extraction failed for {media_path.name}: {exc}")
-        return {"median_db": -60.0, "max_db": -60.0, "peaks": [], "peak_intervals": []}
+        proc.kill()
+        return _unavailable(f"ffmpeg failed on {media_path.name}: {exc}")
 
     if not raw_audio:
-        return {"median_db": -60.0, "max_db": -60.0, "peaks": [], "peak_intervals": []}
+        return _unavailable(f"ffmpeg produced no PCM data for {media_path.name}")
 
     samples = np.frombuffer(raw_audio, dtype=np.float32)
     total_samples = len(samples)
     if total_samples == 0:
-        return {"median_db": -60.0, "max_db": -60.0, "peaks": [], "peak_intervals": []}
+        return _unavailable(f"decoded zero samples for {media_path.name}")
 
     win_samples = int(sample_rate * window_sec)
     hop_samples = int(sample_rate * hop_sec)
@@ -76,7 +105,7 @@ def analyze_audio_energy(
         times.append(i / sample_rate)
 
     if not rms_values:
-        return {"median_db": -60.0, "max_db": -60.0, "peaks": [], "peak_intervals": []}
+        return _unavailable(f"clip shorter than one analysis window ({window_sec}s)")
 
     rms_arr = np.array(rms_values)
     median_db = float(np.median(rms_arr))
@@ -113,6 +142,7 @@ def analyze_audio_energy(
         intervals.append((round(curr_start, 2), round(curr_end, 2)))
 
     return {
+        "available": True,
         "median_db": round(median_db, 1),
         "max_db": round(max_db, 1),
         "peaks": peaks,

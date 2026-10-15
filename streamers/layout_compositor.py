@@ -95,8 +95,9 @@ def _compute_disjoint_split_panes(
     overlap is floor(source_w / 2) = 960 px. Pane height = 960 * 8/9 = 853 px
     rounded down to even = 852 px.
 
-    For vertical sources (D4) detected upstream, caller should pass full-size
-    pane dimensions — this function handles the horizontal-split math only.
+    For vertical sources (source_aspect < 0.75) there is no horizontal room to
+    split, so this function returns two full-width panes stacked vertically and
+    enforces disjointness on the Y axis instead.
 
     Guarantees:
     - box1.right <= box2.left  (zero pixel overlap — strict disjointness)
@@ -108,16 +109,29 @@ def _compute_disjoint_split_panes(
     # D2 fix: cap pane_w at half source width so left + right never overlap.
     max_pane_w = _even(source_w // 2)
 
-    # D4 guard: if source is already vertical, use full-height crops.
+    # D4 guard: if source is already vertical, stack full-width panes vertically.
     source_aspect = source_w / max(source_h, 1)
     if source_aspect < 0.75:
-        # Vertical or square source — stack identical full-frame panes instead
-        # of trying to split horizontally; caller uses stacked mode.
+        # Vertical or square source: there is no horizontal room to split.
+        # The branch previously set pane_w = source_w but left the y coordinates
+        # to the horizontal-split logic below, so it produced two overlapping
+        # full-frame panes that then failed the horizontal disjointness assert —
+        # an unsatisfiable invariant, meaning EVERY vertical source raised here
+        # (and under `python -O`, where asserts vanish, silently emitted two
+        # overlapping panes instead). Complete the stacked layout and assert the
+        # invariant that actually applies to it, on the Y axis.
         pane_w = _even(source_w)
-        pane_h = _even(source_h)
-    else:
-        pane_w = max_pane_w
-        pane_h = _even(int(pane_w * STREAMER_SPLIT_PANE_ASPECT_H / STREAMER_SPLIT_PANE_ASPECT_W))
+        pane_h = _even(source_h // 2)
+        top = (0, 0, pane_w, pane_h)
+        bottom = (0, pane_h, pane_w, pane_h)
+        assert top[1] + top[3] <= bottom[1] + 2, (
+            f"D4: stacked panes overlap! top.bottom={top[1] + top[3]} > "
+            f"bottom.top={bottom[1]}. source_h={source_h}, pane_h={pane_h}"
+        )
+        return top, bottom
+
+    pane_w = max_pane_w
+    pane_h = _even(int(pane_w * STREAMER_SPLIT_PANE_ASPECT_H / STREAMER_SPLIT_PANE_ASPECT_W))
 
     # Left pane: must stay entirely within the left half [0, source_w//2).
     # Clamp x so that x + pane_w <= source_w // 2.
@@ -549,11 +563,10 @@ def build_streamer_framing(
         s2_box = layout_info.speaker2_box or (_even(w - default_pane_w), 0, default_pane_w, default_pane_h)
 
         # D8 fix: face_count comes from how many distinct speaker boxes we have,
-        # not a hardcoded literal. Both boxes being non-None means 2 people.
-        actual_face_count = sum([
-            1 if layout_info.speaker1_box is not None else 1,  # always 1 for the host
-            1 if layout_info.speaker2_box is not None else 0,  # 1 only if guest detected
-        ])
+        # not a hardcoded literal. speaker1 is always present (s1_box above falls
+        # back to the host pane), so the count is 1 plus the guest when detected.
+        # The previous `1 if ... is not None else 1` was tautological.
+        actual_face_count = 1 + (1 if layout_info.speaker2_box is not None else 0)
 
         shot = ShotPlan(
             start=0.0,
