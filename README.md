@@ -128,6 +128,12 @@ and variables → Actions** for CI.
 Engine paths can be overridden with `CLIPS_CORE_ROOT`, `CLIPS_CORE_MODELS_DIR`
 and `CLIPS_CORE_ASSETS_DIR` (see `core/README.md`).
 
+### Operational levers (variables, not secrets)
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `STRICT_VISUAL_CHECKS` | `1` | The publish gate **fails closed** when a required visual check cannot run at all (cv2 missing, frames undecodable). Setting this to `0` downgrades that to a warning. Treat `0` as an explicit, temporary, audited override: a clip that cannot be verified must not reach a live account. |
+
 > **Never commit secrets.** They belong in `.env` (gitignored) and GitHub
 > Actions secrets only.
 
@@ -136,10 +142,21 @@ and `CLIPS_CORE_ASSETS_DIR` (see `core/README.md`).
 ## Tests
 
 ```bash
-python -m pytest tests/ -q
+python -m pytest tests/ -q                                   # unit + integration
+python -m pytest tests/ -q --cov=streamers --cov-report=term # with coverage
+python -m ruff check --select E9,F63,F7,F82,F401,F811,F841,F501 streamers/ main_streamer.py tests/
 ```
 
-`tests.yml` runs this on every push and pull request.
+`tests.yml` runs all three on every push and pull request, with a coverage floor
+on the V2-owned `streamers/` surface and a lint gate on V2-owned code.
+
+* `core/` is the **vendored** clips-core engine and must stay byte-identical to
+  upstream, so it is deliberately excluded from lint and from the coverage floor.
+  Fixes there land upstream and are pulled in (see `SYNC.md`).
+* `tests/test_v2_gate_e2e.py` synthesises real 9:16 clips with ffmpeg and runs the
+  **real** publish gate over real decoded frames — every other gate test mocks the
+  verdict, which is why the fail-closed policy needed a real-media test to pin it.
+  See `tests/fixtures/README.md` for the corpus contract.
 
 ---
 

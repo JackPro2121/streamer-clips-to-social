@@ -45,6 +45,27 @@ upstream-sync procedure.
    secrets only. Never log, print, or commit them.
 6. **Output contract.** 30–45 s clips, 1080×1920, kinetic captions, verified by
    the publish gate before anything reaches Buffer.
+7. **The gate fails closed.** If a required visual check cannot run at all (cv2
+   absent, frames undecodable) the clip is **blocked**, never published with a
+   warning. `STRICT_VISUAL_CHECKS=0` is an explicit, temporary, audited override
+   — not a fix. A check that silently skipped is indistinguishable from one that
+   passed in every log, artifact and metric downstream.
+8. **Fail closed on target resolution.** If no Buffer channel resolves, or a
+   configured id is not in the account, publishing refuses and names the wrong
+   ids. Never fall back to "broadcast to everything connected" — a config typo
+   must not post to accounts nobody selected.
+9. **Never retry an ambiguous publish.** Buffer's `createPost` has no
+   idempotency key, so retry only failures that provably did not create a post.
+   A timeout or unparseable response is recorded as `unknown` for a human to
+   reconcile; retrying it can double-post.
+10. **Bound disk growth.** `streamers/retention.py` expires old run directories,
+    download working copies, subtitle stylesheets and derived render artifacts at
+    the end of every run. Rendered clips and thumbnails are deliverables and are
+    never deleted there.
+11. **Untrusted text never becomes a path.** Titles and captions come from an LLM
+    and a third party's VOD, so every filename goes through
+    `streamers/paths.py` (`slugify_title` / `safe_output_name` / `assert_within`).
+    A raw `f"{title}.mp4"` is a path-traversal and an invalid-Windows-name bug.
 
 ---
 
@@ -65,6 +86,9 @@ upstream-sync procedure.
 
 Engine paths: `CLIPS_CORE_ROOT`, `CLIPS_CORE_MODELS_DIR`, `CLIPS_CORE_ASSETS_DIR`.
 
+Policy variables (not secrets): `STRICT_VISUAL_CHECKS` (default `1`) — see hard
+rule 7.
+
 ---
 
 ## Workflow for changes
@@ -74,8 +98,14 @@ Engine paths: `CLIPS_CORE_ROOT`, `CLIPS_CORE_MODELS_DIR`, `CLIPS_CORE_ASSETS_DIR
    The suite is `python -m pytest tests/ -q`.
 3. **Implement** — keep changes inside `streamers/` unless the fix belongs in
    the shared engine.
-4. **Verify** — run the tests; run `python main_streamer.py --help` and, where
-   relevant, a real clip render.
+4. **Verify** — run the full gate, not just the tests:
+   ```bash
+   python -m pytest tests/ -q --cov=streamers --cov-fail-under=45
+   python -m ruff check --select E9,F63,F7,F82,F401,F811,F841,F501 streamers/ main_streamer.py tests/
+   ```
+   Then `python main_streamer.py --help` and, where relevant, a real clip render.
+   `core/` is excluded from both: it is the vendored engine and must stay
+   byte-identical to upstream (`SYNC.md`).
 5. **Review** — check the diff for secrets, safe-zone violations and hashtag
    bounds before committing.
 6. **Commit** — conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`,
@@ -107,8 +137,10 @@ Engine paths: `CLIPS_CORE_ROOT`, `CLIPS_CORE_MODELS_DIR`, `CLIPS_CORE_ASSETS_DIR
 │   ├── chat_analyzer.py           # live-chat velocity (MPS) & emotes
 │   ├── editing_enhancer.py        # velocity hook + pattern interrupts
 │   ├── censor.py                  # profanity / TOS masking
-│   ├── gate.py                    # publish gate (verification verdict)
-│   └── spec.py                    # numeric spec overlay & invariant asserts
+│   ├── gate.py                    # publish gate (verification verdict, fails closed)
+│   ├── paths.py                   # untrusted-title → safe filename (allowlist + traversal guard)
+│   ├── retention.py               # bounded artifact retention sweep
+│   └── spec.py                    # numeric spec overlay & validate_spec() invariants
 ├── core/                          # vendored engine (committed copy of clips-core)
 ├── assets/                        # fonts, sfx, audio beds
 ├── tools/
