@@ -88,7 +88,7 @@ Engine paths: `CLIPS_CORE_ROOT`, `CLIPS_CORE_MODELS_DIR`, `CLIPS_CORE_ASSETS_DIR
 * Tracked in git: `core/models/face_detection_yunet.onnx` (232 KB) and the V2
   `core/models/streamer_profiles/*.npy` identity embeddings.
 * Auto-downloaded on first use: SFace (`face_recognition_sface_2021dec.onnx`).
-* Gitignored, fetched via `python tools/fetch_models.py --fetch all`:
+* Gitignored, fetched via `python core/tools/fetch_models.py --fetch all`:
   S3FD/SyncNet, TransNetV2.
 
 ---
@@ -111,7 +111,8 @@ Engine paths: `CLIPS_CORE_ROOT`, `CLIPS_CORE_MODELS_DIR`, `CLIPS_CORE_ASSETS_DIR
 │   └── spec.py                    # numeric spec overlay & invariant asserts
 ├── core/                          # git submodule -> clips-core
 ├── assets/                        # fonts, sfx, audio beds
-├── tools/                         # model fetch, profile build, smoke tests
+├── tools/
+│   └── build_streamer_profile.py  # [V2] Streamer identity profiles (shared tools live in core/tools/)
 ├── tests/                         # V2 + shared-engine tests
 ├── data/                          # streamer_history.json, streamer_cursor.json
 └── .github/workflows/             # streamer_clipper.yml, tests.yml

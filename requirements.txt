@@ -1,6 +1,6 @@
 # Runtime dependencies. Dev/test tooling lives in requirements-dev.txt.
 #
-# Install through tools/install_deps.sh, not `pip install -r requirements.txt`
+# Install through core/tools/install_deps.sh, not `pip install -r requirements.txt`
 # directly. Three packages in the transitive graph (scenedetect, rapidocr, and
 # previously mediapipe) each declare a *different* OpenCV distribution, and all
 # of them install into the same `cv2/` package directory. Installing this file
@@ -17,7 +17,7 @@ google-genai>=0.1.1
 yt-dlp>=2024.8.6
 youtube-transcript-api>=0.6.2
 faster-whisper>=1.0.0
-# Single canonical OpenCV. See the header note and tools/install_deps.sh.
+# Single canonical OpenCV. See the header note and core/tools/install_deps.sh.
 opencv-python-headless>=4.8.0.76,<5.0.0.0
 numpy>=1.24.0
 Pillow>=10.0.0

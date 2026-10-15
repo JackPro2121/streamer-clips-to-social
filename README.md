@@ -44,7 +44,8 @@ streamer-clips-to-social/
 │   └── spec.py                    # V2 numeric spec overlay & invariant asserts
 ├── core/                          # git submodule -> clips-core (shared engine)
 ├── assets/                        # fonts, sfx, audio beds
-├── tools/                         # fetch_models, build_streamer_profile, smoke tests
+├── tools/
+│   └── build_streamer_profile.py  # [V2] Identity profiles (shared tools live in core/tools/)
 ├── tests/                         # V2 tests + shared-engine tests
 ├── data/                          # streamer_history.json, streamer_cursor.json
 └── .github/workflows/             # streamer_clipper.yml, tests.yml
@@ -61,7 +62,7 @@ git submodule update --init --recursive   # after cloning
 Large model weights (SFace, S3FD/SyncNet, TransNetV2) are gitignored inside
 `clips-core`. The 232 KB YuNet detector and the V2 streamer identity profiles
 ship in git; SFace is auto-downloaded on first use. Everything else is fetched
-by `tools/fetch_models.py` (SHA-256 pinned).
+by `core/tools/fetch_models.py` (SHA-256 pinned).
 
 ---
 
@@ -70,7 +71,7 @@ by `tools/fetch_models.py` (SHA-256 pinned).
 ```bash
 git clone --recurse-submodules https://github.com/JackPro2121/streamer-clips-to-social.git
 cd streamer-clips-to-social
-python -m pip install -r requirements.txt     # or: bash tools/install_deps.sh
+python -m pip install -r requirements.txt     # or: bash core/tools/install_deps.sh
 cp .env.example .env                           # then fill in the keys
 ```
 

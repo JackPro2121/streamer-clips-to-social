@@ -8,7 +8,7 @@
 # Installed only in jobs that run pretrained audio-visual models:
 #   pip install -r requirements-ml.txt
 #
-# Models are fetched by tools/fetch_models.py from their official sources and
+# Models are fetched by core/tools/fetch_models.py from their official sources and
 # SHA-256 verified. TransNetV2 ships its weights inside its own wheel.
 
 --extra-index-url https://download.pytorch.org/whl/cpu
@@ -28,7 +28,7 @@ scenedetect[opencv]>=0.6,<0.7
 # Shot-boundary detection; weights are bundled in the wheel.
 transnetv2-pytorch==1.0.5
 
-# Needed by tools/export_transnetv2_onnx.py (the render job already gets
+# Needed by core/tools/export_transnetv2_onnx.py (the render job already gets
 # onnxruntime transitively through faster-whisper).
 onnxruntime>=1.17,<2
 # torch >= 2.6's ONNX exporter imports onnxscript at entry.

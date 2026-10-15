@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import tools.fetch_models as fetch_models
+import core.tools.fetch_models as fetch_models
 
 
 def _entry(url: str, payload: bytes) -> dict:
