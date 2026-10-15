@@ -42,7 +42,35 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
-      - name: Run test suite
+      # Lint V2-owned code only. `core/` is the vendored clips-core engine and
+      # must stay byte-identical to upstream (see SYNC.md), so style changes
+      # there have to land upstream and be pulled in — never fixed here.
+      #
+      # The rule set is deliberately the "real bug" class rather than a full
+      # style pass: E9/F63/F7/F82 are syntax and name errors, F401/F811/F841/F501
+      # are unused/dead/storetyping mistakes. A broad style gate would fail on
+      # ~21k lines of pre-existing code and get disabled, which is worse than no
+      # gate at all.
+      - name: Lint (ruff — bug-class rules)
+        run: |
+          python -m ruff check \
+            --select E9,F63,F7,F82,F401,F811,F841,F501 \
+            streamers/ main_streamer.py tests/
+
+      # Coverage floor for the V2-owned surface (`streamers/`). `core/` is the
+      # vendored engine: it is verified upstream and identical here, so gating
+      # this repo on it would just create pressure to edit vendored code.
+      #
+      # 45 is a ratchet, not a target. It is set a few points below the measured
+      # value so honest refactors do not trip it, while a genuine regression in
+      # test coverage does. The ECC standard is 80%; reaching it here needs real
+      # media for gate.py and pipeline.py, which the tests/fixtures corpus is for
+      # (see tests/test_v2_gate_e2e.py) — raise this floor as that corpus grows.
+      - name: Run test suite (with coverage floor)
         env:
           PYTHONUNBUFFERED: '1'
-        run: python -m pytest tests/ -q
+        run: |
+          python -m pytest tests/ -q \
+            --cov=streamers \
+            --cov-report=term-missing \
+            --cov-fail-under=45

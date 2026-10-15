@@ -102,13 +102,23 @@ jobs:
           STREAMER_MAX_CLIP_DURATION: '45'
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # SECURITY: dispatch inputs are bridged through env and dereferenced as
+          # quoted shell variables. Never interpolate ${{ github.event.inputs.* }}
+          # into the script body — GitHub expands it before bash parses the line,
+          # which makes free-text inputs a script-injection sink in a job that
+          # holds the Buffer publish token and a contents:write GITHUB_TOKEN.
+          INPUT_VIDEO_URL: ${{ github.event.inputs.video_url }}
+          INPUT_STREAMER: ${{ github.event.inputs.streamer }}
+          INPUT_NUM_CLIPS: ${{ github.event.inputs.num_clips }}
+          INPUT_POST_TO_BUFFER: ${{ github.event.inputs.post_to_buffer }}
+          INPUT_DELAY_DAYS: ${{ github.event.inputs.delay_days }}
         run: |
           args=()
-          [ -n "${{ github.event.inputs.video_url }}" ] && args+=(--video-url "${{ github.event.inputs.video_url }}")
-          [ "${{ github.event.inputs.streamer }}" != "all" ] && args+=(--streamer "${{ github.event.inputs.streamer }}")
-          args+=(--num-clips "${{ github.event.inputs.num_clips || 3 }}")
-          [ "${{ github.event.inputs.post_to_buffer }}" = "true" ] && args+=(--post-to-buffer)
-          [ -n "${{ github.event.inputs.delay_days }}" ] && args+=(--delay-days "${{ github.event.inputs.delay_days }}")
+          [ -n "$INPUT_VIDEO_URL" ] && args+=(--video-url "$INPUT_VIDEO_URL")
+          [ "$INPUT_STREAMER" != "all" ] && args+=(--streamer "$INPUT_STREAMER")
+          args+=(--num-clips "${INPUT_NUM_CLIPS:-3}")
+          [ "$INPUT_POST_TO_BUFFER" = "true" ] && args+=(--post-to-buffer)
+          [ -n "$INPUT_DELAY_DAYS" ] && args+=(--delay-days "$INPUT_DELAY_DAYS")
 
           python -u main_streamer.py "${args[@]}"
 
