@@ -80,6 +80,28 @@ def main() -> None:
         print(f"[-] Invalid --num-clips {args.num_clips}: must be between 1 and 5.")
         sys.exit(2)
 
+    # Validate --delay-days. argparse guarantees an int, but not a sane one: a
+    # negative value silently falls back to "add to queue" and an arbitrarily
+    # large one schedules a post years into the future. Fail loudly instead.
+    if not (0 <= args.delay_days <= 90):
+        print(f"[-] Invalid --delay-days {args.delay_days}: must be between 0 and 90.")
+        sys.exit(2)
+
+    # Validate --streamer against the live roster. An unknown value (typo, odd
+    # casing, or roster drift) used to fall through to discovery's auto mode and
+    # clip the ENTIRE roster — publishing other creators' footage to the account
+    # that was requested. Fail here, with the valid keys.
+    if args.streamer.strip():
+        from streamers.discovery import STREAMER_CHANNELS
+
+        streamer_key = args.streamer.strip().lower()
+        if streamer_key not in STREAMER_CHANNELS:
+            print(
+                f"[-] Unknown --streamer {args.streamer!r}. Valid keys: "
+                + ", ".join(sorted(STREAMER_CHANNELS))
+            )
+            sys.exit(2)
+
     clips = run_streamer_pipeline(
         video_url=args.video_url.strip() or None,
         creator_name=args.streamer.strip() or None,

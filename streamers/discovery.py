@@ -593,9 +593,18 @@ def discover_streamer_candidates(
             processed_ids.add(vid_id)
 
     # Build ordered list of streamers to query
-    if creator and creator.lower() in STREAMER_CHANNELS:
+    if creator:
+        key = creator.strip().lower()
+        if key not in STREAMER_CHANNELS:
+            # Roster drift, odd casing or a typo must never silently degrade into
+            # auto-discovery: that would clip OTHER creators and publish their
+            # footage to the requested streamer's account.
+            raise ValueError(
+                f"Unknown streamer {creator!r}. Valid keys: "
+                + ", ".join(sorted(STREAMER_CHANNELS))
+            )
         # Single-creator mode: skip cursor logic entirely
-        selected_keys = [creator.lower()]
+        selected_keys = [key]
         use_cursor = False
     else:
         # Auto mode: apply category filter then apply round-robin ordering
