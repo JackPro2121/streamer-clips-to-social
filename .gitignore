@@ -52,3 +52,4 @@ test_*.ass
 *.md
 !README.md
 !AGENTS.md
+!SYNC.md
