@@ -72,6 +72,8 @@ fetched by `core/tools/fetch_models.py` (SHA-256 pinned).
 > upstream tree stays clean. Ignore the submodule steps there; this repo needs
 > none.
 
+To check for upstream drift or pull engine changes in, see [`SYNC.md`](SYNC.md).
+
 ---
 
 ## Quickstart

@@ -25,7 +25,8 @@ git clone https://github.com/JackPro2121/streamer-clips-to-social.git   # no --r
 
 V2 may edit `core/` directly. When a fix is engine-wide, apply it upstream in
 `clips-core` as well so the V1 podcast pipeline receives it. No CI checkout sets
-`submodules: true` any more.
+`submodules: true` any more. See [`SYNC.md`](SYNC.md) for the drift check and the
+upstream-sync procedure.
 
 ---
 
