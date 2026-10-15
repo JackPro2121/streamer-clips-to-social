@@ -9,6 +9,12 @@
     "8YUcubZNbKo",
     "lcetk9qIzrA"
   ],
-  "attempts": {},
-  "errors": {}
+  "attempts": {
+    "xorMK89ttdg": 1,
+    "pLO8AVvIbkg": 1
+  },
+  "errors": {
+    "xorMK89ttdg": "no timed transcript available",
+    "pLO8AVvIbkg": "produced no publishable clip"
+  }
 }
