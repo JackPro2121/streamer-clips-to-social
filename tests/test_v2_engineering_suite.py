@@ -77,7 +77,15 @@ class TestV2PublicationGate(unittest.TestCase):
             mock_verdict.findings = []
             mock_verdict.metrics = {}
 
-            with patch("streamers.gate._import_verdict") as mock_import:
+            clean_visual = {
+                "available": True,
+                "passed": True,
+                "worst_margin_pct": 0.0,
+                "worst_side": "none",
+                "sampled_frames": 12,
+            }
+            with patch("streamers.gate._import_verdict") as mock_import, \
+                    patch("streamers.gate._visual_black_margin_check", return_value=clean_visual):
                 mock_mod = MagicMock()
                 mock_mod.verify.return_value = mock_verdict
                 mock_import.return_value = mock_mod

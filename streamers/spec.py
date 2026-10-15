@@ -2,7 +2,8 @@
 
 Single source of truth for every numeric constraint in the V2 streamer pipeline.
 All V2 bounds are equal to or tighter than the global creative_spec (V1) values.
-The assert block at import time makes it impossible to accidentally widen them.
+``validate_spec()`` runs at import time and makes it impossible to accidentally
+widen them.
 
 Mapping to defect register
 --------------------------
@@ -14,6 +15,7 @@ D1  — gate.py imports this for publish-gate enforcement.
 from __future__ import annotations
 
 import os
+from typing import List
 
 from core import creative_spec
 
@@ -104,19 +106,67 @@ STREAMER_PRE_SCAN_TOP_ZONES: int = 3
 STREAMER_PRE_SCAN_WINDOW_S: float = 1200.0   # 20 minutes
 
 # ---------------------------------------------------------------------------
-# Invariants — assert at import time that V2 is not looser than V1
+# Publish-gate policy
 # ---------------------------------------------------------------------------
-assert STREAMER_MIN_CLIP_DURATION_S >= creative_spec.MIN_CLIP_DURATION_S, (
-    f"V2 min duration ({STREAMER_MIN_CLIP_DURATION_S}s) is looser than "
-    f"V1 ({creative_spec.MIN_CLIP_DURATION_S}s)"
-)
-assert STREAMER_MAX_CLIP_DURATION_S <= creative_spec.MAX_CLIP_DURATION_S, (
-    f"V2 max duration ({STREAMER_MAX_CLIP_DURATION_S}s) exceeds "
-    f"V1 ({creative_spec.MAX_CLIP_DURATION_S}s)"
-)
-assert STREAMER_OUTPUT_WIDTH == creative_spec.OUTPUT_WIDTH, (
-    "V2 output width diverges from creative_spec"
-)
-assert STREAMER_OUTPUT_HEIGHT == creative_spec.OUTPUT_HEIGHT, (
-    "V2 output height diverges from creative_spec"
-)
+# What should the gate do when a *required* visual check cannot run at all —
+# cv2 absent, weights missing, or no decodable frames?
+#
+# Fail CLOSED (default). An unverifiable clip must not reach a live account, and
+# a silently-skipped check is indistinguishable from a passing one in every log,
+# artifact and metric downstream, so fail-open is indistinguishable from success.
+# Set STRICT_VISUAL_CHECKS=0 only as an explicit, temporary, audited override.
+STRICT_VISUAL_CHECKS: bool = os.getenv("STRICT_VISUAL_CHECKS", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
+
+# ---------------------------------------------------------------------------
+# Invariants — the V2 overlay may never be looser than the shared V1 spec
+# ---------------------------------------------------------------------------
+def validate_spec() -> None:
+    """Raise ``ValueError`` if a V2 bound is looser than the shared V1 bound.
+
+    Deliberately *not* an ``assert``: assertions are stripped by ``python -O``,
+    which would silently disable every guard below and let a widened V2 bound
+    reach production. All violations are reported together so one run fixes all
+    of them instead of failing on the first.
+    """
+    violations: List[str] = []
+
+    if STREAMER_MIN_CLIP_DURATION_S < creative_spec.MIN_CLIP_DURATION_S:
+        violations.append(
+            f"V2 min duration ({STREAMER_MIN_CLIP_DURATION_S}s) is looser than "
+            f"V1 ({creative_spec.MIN_CLIP_DURATION_S}s)"
+        )
+    if STREAMER_MAX_CLIP_DURATION_S > creative_spec.MAX_CLIP_DURATION_S:
+        violations.append(
+            f"V2 max duration ({STREAMER_MAX_CLIP_DURATION_S}s) exceeds "
+            f"V1 ({creative_spec.MAX_CLIP_DURATION_S}s)"
+        )
+    if STREAMER_MIN_CLIP_DURATION_S > STREAMER_MAX_CLIP_DURATION_S:
+        violations.append(
+            f"V2 duration window is inverted: min {STREAMER_MIN_CLIP_DURATION_S}s > "
+            f"max {STREAMER_MAX_CLIP_DURATION_S}s"
+        )
+    if STREAMER_OUTPUT_WIDTH != creative_spec.OUTPUT_WIDTH:
+        violations.append(
+            f"V2 output width {STREAMER_OUTPUT_WIDTH} diverges from "
+            f"creative_spec {creative_spec.OUTPUT_WIDTH}"
+        )
+    if STREAMER_OUTPUT_HEIGHT != creative_spec.OUTPUT_HEIGHT:
+        violations.append(
+            f"V2 output height {STREAMER_OUTPUT_HEIGHT} diverges from "
+            f"creative_spec {creative_spec.OUTPUT_HEIGHT}"
+        )
+
+    if violations:
+        raise ValueError(
+            "V2 creative spec is looser than the shared V1 spec:\n  - "
+            + "\n  - ".join(violations)
+        )
+
+
+# Fail fast at import: a misconfigured overlay must never reach a render.
+validate_spec()

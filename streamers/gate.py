@@ -6,12 +6,26 @@ Why this module exists
 ----------------------
 Pipeline V1 (main.py) has an AST-pinned publish gate wiring verdict.verify →
 repair.render_with_repair → BufferPublisher. V2 was built alongside it and
-inherited none of that: pipeline.py:318-325 reaches Buffer with nothing between
-render_viral_clip and the dispatch call.
+inherited none of that, so it originally reached Buffer with nothing between
+render_viral_clip and the dispatch call. This module closes that gap: it composes
+the existing public verification primitives (core.verification.verdict.verify)
+behind a single V2-scoped function that pipeline.py calls instead of invoking
+Buffer directly.
 
-This module closes that gap. It composes the existing public verification
-primitives (core.verification.verdict.verify) behind a single V2-scoped function
-that pipeline.py calls instead of invoking Buffer directly.
+Failure policy (fail closed)
+----------------------------
+This gate is the last line before a live account, so "we could not check" is
+treated as "do not publish":
+
+* A required check that cannot run at all (cv2 absent, frames undecodable)
+  produces the blocking code ``v2_visual_check_unavailable`` and the clip is
+  refused. ``spec.STRICT_VISUAL_CHECKS=0`` downgrades that to a warning; it is an
+  explicit, temporary, audited override, not a configuration convenience.
+* Every "could not run" path carries a machine-readable ``reason`` (for example
+  ``cv2/numpy import failed: ...`` versus ``no decodable frames sampled in ...``)
+  so an environment fault is never confused with a content fault.
+* Non-blocking checks (caption collision, face stability) still record their
+  absence in ``warnings``, so a skipped check cannot read as a clean pass.
 
 V1 contract
 -----------
@@ -40,6 +54,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from streamers.spec import (
+    STRICT_VISUAL_CHECKS,
     STREAMER_MAX_CLIP_DURATION_S,
     STREAMER_MIN_CLIP_DURATION_S,
     STREAMER_OUTPUT_HEIGHT,
@@ -86,50 +101,43 @@ class GateResult:
 
 
 
+def _face_unavailable(reason: str) -> dict:
+    """Face-stability could not run. ``reason`` is machine-readable on purpose.
+
+    Every "unavailable" path used to return an anonymous zeroed dict, so the
+    caller could not tell an environment problem (cv2 missing) from a content
+    problem (no faces found). Downstream logging loses that distinction for good.
+    """
+    return {
+        "available": False,
+        "reason": reason,
+        "face_presence_ratio": 0.0,
+        "max_horizontal_jump_px": 0.0,
+        "sampled_frames": 0,
+        "warning": "face_stability_unavailable",
+    }
+
+
 def _face_stability_check(path) -> dict:
     """Sample frames and measure face/track instability in the rendered clip."""
     model_path = str(YUNET_MODEL_PATH)
     try:
         import cv2
-        import numpy as np
-    except Exception:
-        return {
-            "available": False,
-            "face_presence_ratio": 0.0,
-            "max_horizontal_jump_px": 0.0,
-            "sampled_frames": 0,
-            "warning": "face_stability_unavailable",
-        }
+        import numpy as np  # noqa: F401  (declared optional dependency)
+    except Exception as exc:
+        return _face_unavailable(f"cv2/numpy import failed: {exc}")
 
-    if not __import__("pathlib").Path(model_path).exists():
-        return {
-            "available": False,
-            "face_presence_ratio": 0.0,
-            "max_horizontal_jump_px": 0.0,
-            "sampled_frames": 0,
-            "warning": "face_stability_unavailable",
-        }
+    if not Path(model_path).exists():
+        return _face_unavailable(f"YuNet weights not found at {model_path}")
 
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
-        return {
-            "available": False,
-            "face_presence_ratio": 0.0,
-            "max_horizontal_jump_px": 0.0,
-            "sampled_frames": 0,
-            "warning": "face_stability_unavailable",
-        }
+        return _face_unavailable(f"could not open {path}")
 
     try:
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         if total_frames <= 0:
-            return {
-                "available": False,
-                "face_presence_ratio": 0.0,
-                "max_horizontal_jump_px": 0.0,
-                "sampled_frames": 0,
-                "warning": "face_stability_unavailable",
-            }
+            return _face_unavailable(f"frame count unreadable for {path}")
 
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 1920)
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1080)
@@ -183,6 +191,16 @@ def _face_stability_check(path) -> dict:
 
 
 
+def _caption_unavailable(reason: str) -> dict:
+    """Caption-collision check could not run (see ``_face_unavailable``)."""
+    return {
+        "available": False,
+        "reason": reason,
+        "collision": False,
+        "warning": "caption_check_unavailable",
+    }
+
+
 def _caption_collision_check(path, model_path=None) -> dict:
     """Sample one frame and flag caption-like white stickers over large faces."""
     if model_path is None:
@@ -190,24 +208,23 @@ def _caption_collision_check(path, model_path=None) -> dict:
     try:
         import cv2
         import numpy as np
-        from pathlib import Path as _Path
-    except Exception:
-        return {"available": False, "collision": False, "warning": "caption_check_unavailable"}
+    except Exception as exc:
+        return _caption_unavailable(f"cv2/numpy import failed: {exc}")
 
-    if not _Path(model_path).exists():
-        return {"available": False, "collision": False, "warning": "caption_check_unavailable"}
+    if not Path(model_path).exists():
+        return _caption_unavailable(f"YuNet weights not found at {model_path}")
 
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
-        return {"available": False, "collision": False, "warning": "caption_check_unavailable"}
+        return _caption_unavailable(f"could not open {path}")
     try:
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         if total <= 0:
-            return {"available": False, "collision": False, "warning": "caption_check_unavailable"}
+            return _caption_unavailable(f"frame count unreadable for {path}")
         cap.set(cv2.CAP_PROP_POS_FRAMES, total // 2)
         ok, frame = cap.read()
         if not ok or frame is None or frame.size == 0:
-            return {"available": False, "collision": False, "warning": "caption_check_unavailable"}
+            return _caption_unavailable(f"no decodable mid-clip frame in {path}")
 
         h, w = frame.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -247,6 +264,25 @@ def _caption_collision_check(path, model_path=None) -> dict:
         cap.release()
 
 
+def _visual_unavailable(reason: str) -> dict:
+    """The black-margin audit could not run.
+
+    Returns ``passed: True`` so this function never invents a *content* failure,
+    but pairs it with ``available: False`` and a machine-readable ``reason``. The
+    publish decision for an unavailable check is made by ``verify_clip`` under the
+    ``STRICT_VISUAL_CHECKS`` policy — never silently, and never here.
+    """
+    return {
+        "available": False,
+        "reason": reason,
+        "passed": True,
+        "worst_margin_pct": 0.0,
+        "worst_side": "none",
+        "sampled_frames": 0,
+        "warning": "visual_check_unavailable",
+    }
+
+
 def _visual_black_margin_check(path) -> dict:
     """Sample rendered frames and reject shots with excessive black margins.
 
@@ -255,39 +291,18 @@ def _visual_black_margin_check(path) -> dict:
     """
     try:
         import cv2
-        import numpy as np
-    except Exception:
-        return {
-            "available": False,
-            "passed": True,
-            "worst_margin_pct": 0.0,
-            "worst_side": "none",
-            "sampled_frames": 0,
-            "warning": "visual_check_unavailable",
-        }
+        import numpy as np  # noqa: F401  (declared optional dependency)
+    except Exception as exc:
+        return _visual_unavailable(f"cv2/numpy import failed: {exc}")
 
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
-        return {
-            "available": False,
-            "passed": True,
-            "worst_margin_pct": 0.0,
-            "worst_side": "none",
-            "sampled_frames": 0,
-            "warning": "visual_check_unavailable",
-        }
+        return _visual_unavailable(f"could not open {path}")
 
     try:
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         if total_frames <= 0:
-            return {
-                "available": False,
-                "passed": True,
-                "worst_margin_pct": 0.0,
-                "worst_side": "none",
-                "sampled_frames": 0,
-                "warning": "visual_check_unavailable",
-            }
+            return _visual_unavailable(f"frame count unreadable for {path}")
 
         margin_px = 40
         sample_count = min(12, total_frames)
@@ -321,14 +336,7 @@ def _visual_black_margin_check(path) -> dict:
                     worst_side = side
 
         if valid == 0:
-            return {
-                "available": False,
-                "passed": True,
-                "worst_margin_pct": 0.0,
-                "worst_side": "none",
-                "sampled_frames": 0,
-                "warning": "visual_check_unavailable",
-            }
+            return _visual_unavailable(f"no decodable frames sampled in {path}")
 
         worst_pct *= 100.0
         return {
@@ -371,13 +379,6 @@ def verify_clip(
         .verdict_path points to the emitted verdict.json (always written).
     """
     result = GateResult(path=str(path))
-    visual_check = {
-        'available': False,
-        'passed': True,
-        'worst_margin_pct': 0.0,
-        'worst_side': 'none',
-        'sampled_frames': 0,
-    }
 
     if not path.exists():
         result.error = f"Rendered clip not found: {path}"
@@ -474,6 +475,7 @@ def verify_clip(
     # 2b. Visual black-margin audit
     # ------------------------------------------------------------------
     visual_check = _visual_black_margin_check(path)
+    visual_unavailable_reason: Optional[str] = None
     if visual_check.get('available') and not visual_check.get('passed'):
         raw_verdict.add(
             verdict_mod.Finding(
@@ -488,7 +490,7 @@ def verify_clip(
             )
         )
     elif not visual_check.get('available'):
-        raw_verdict.warnings.append('v2_visual_check_unavailable')
+        visual_unavailable_reason = str(visual_check.get('reason') or 'unknown')
 
     # ------------------------------------------------------------------
     # 3. Collect findings
@@ -497,6 +499,34 @@ def verify_clip(
     warnings = [f.code for f in raw_verdict.findings if f.severity == "warning"]
     if 'v2_visual_check_unavailable' in getattr(raw_verdict, 'warnings', []):
         warnings.append('v2_visual_check_unavailable')
+
+    # ------------------------------------------------------------------
+    # 2c. Policy for checks that could not run
+    # ------------------------------------------------------------------
+    # An unverifiable clip must not reach a live account. The black-margin check
+    # IS the V2 composition guarantee, and a check that silently skipped is
+    # indistinguishable from a check that passed in every log, artifact and
+    # metric downstream. Fail closed by default (spec.STRICT_VISUAL_CHECKS).
+    if visual_unavailable_reason is not None:
+        warnings.append(f'v2_visual_check_unavailable:{visual_unavailable_reason}')
+        if STRICT_VISUAL_CHECKS:
+            blocking.append('v2_visual_check_unavailable')
+            print(
+                f"  [gate] ✗ visual check unavailable "
+                f"({visual_unavailable_reason}) — failing closed"
+            )
+
+    # Non-blocking checks: record their absence explicitly so the coverage gap is
+    # visible in the verdict and the production report instead of reading as a
+    # clean pass.
+    if not face_stability.get('available'):
+        warnings.append(
+            f"v2_face_stability_unavailable:{face_stability.get('reason', 'unknown')}"
+        )
+    if not caption_collision.get('available'):
+        warnings.append(
+            f"v2_caption_check_unavailable:{caption_collision.get('reason', 'unknown')}"
+        )
 
     result.blocking_codes = blocking
     result.warnings = warnings
