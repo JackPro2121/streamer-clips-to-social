@@ -1,0 +1,8 @@
+# Development and CI-only tooling. Not needed to run the pipeline.
+#
+# These were previously in requirements.txt, which meant the 90-minute
+# clip-and-publish job installed mypy and ruff and then never invoked them.
+mypy>=1.10.0
+ruff>=0.6.0
+pytest>=8.0.0
+pytest-cov>=5.0.0

@@ -1,0 +1,54 @@
+# Environment & secrets
+.env
+*.env
+*cookies*.txt
+youtube_cookies.txt
+
+# Output directories
+downloads/
+clips/
+downloaded_clips/
+subtitles/
+data/runs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+scratch/
+
+# Media artifacts (assets/ is intentional and must stay tracked)
+*.mp4
+*.mkv
+
+# Local investigation artifacts
+analysis_*/
+audit_inspection/
+test_*.ass
+
+# Documentation & notes (keep private scratch docs ignored, allow core docs)
+*.md
+!README.md
+!AGENTS.md

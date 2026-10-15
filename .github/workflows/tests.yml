@@ -1,0 +1,50 @@
+name: V2 Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Pytest (V2 + shared engine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system dependencies (FFmpeg & fonts)
+        run: |
+          sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout="15" -qq || true
+          sudo apt-get install -y -qq ffmpeg libgl1 libglib2.0-0 fonts-montserrat fonts-noto-color-emoji || true
+          ffmpeg -version | head -n 1
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run test suite
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: python -m pytest tests/ -q

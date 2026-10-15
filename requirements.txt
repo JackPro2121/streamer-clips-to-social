@@ -1,0 +1,47 @@
+# Runtime dependencies. Dev/test tooling lives in requirements-dev.txt.
+#
+# Install through tools/install_deps.sh, not `pip install -r requirements.txt`
+# directly. Three packages in the transitive graph (scenedetect, rapidocr, and
+# previously mediapipe) each declare a *different* OpenCV distribution, and all
+# of them install into the same `cv2/` package directory. Installing this file
+# naively leaves three distributions fighting over one directory, so the
+# effective `cv2` build depends on pip's install order. install_deps.sh removes
+# the non-headless variants after the fact, which is deterministic.
+
+# --- AI & LLM (Gemini free tier) ---------------------------------------------
+# google-genai is the maintained SDK; the legacy google-generativeai package is
+# end-of-life and was redundant (viral_detector prefers google-genai).
+google-genai>=0.1.1
+
+# --- Video & media -----------------------------------------------------------
+yt-dlp>=2024.8.6
+youtube-transcript-api>=0.6.2
+faster-whisper>=1.0.0
+# Single canonical OpenCV. See the header note and tools/install_deps.sh.
+opencv-python-headless>=4.8.0.76,<5.0.0.0
+numpy>=1.24.0
+Pillow>=10.0.0
+scenedetect>=0.6.4
+
+# --- OCR ---------------------------------------------------------------------
+# Optional at runtime (text_detection falls back to the edge heuristic when the
+# import fails) but installed by default so caption-collision detection is real
+# rather than best-effort. See requirements-ocr.txt for the tier override.
+rapidocr_onnxruntime>=1.3.8
+
+# --- API & networking --------------------------------------------------------
+requests>=2.31.0
+python-dotenv>=1.0.0
+pydantic>=2.7.0
+
+# --- Notes on removed entries ------------------------------------------------
+# bgutil-ytdlp-pot-provider / yt-dlp-get-pot: never imported. CI runs the
+#   `brainicism/bgutil-ytdlp-pot-provider` Docker image instead
+#   (podcast_clipper.yml), and the Python packages were an unused second path.
+# tqdm / click: never imported anywhere in the codebase.
+# mediapipe: used at exactly one site (face_tracker.py, as a face-detection
+#   fallback *after* YuNet, which is present and tracked). It dragged in
+#   matplotlib + sounddevice + absl-py for ~70 MB and exposes only the
+#   deprecated `mp.solutions` API. The import is lazy and already guarded, so
+#   dropping it from requirements removes the dependency without touching code.
+#   Re-install it manually if YuNet ever needs a fallback.

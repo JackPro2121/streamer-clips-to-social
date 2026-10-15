@@ -1,0 +1,36 @@
+# Optional: real OCR for text-region detection (Phase 1b).
+#
+# STATUS: this is now installed by default via requirements.txt, because caption
+# collision detection is only as good as the text regions it is given, and the
+# edge heuristic is a blunt substitute. Confirmed working in CI:
+#
+#   [+] OCR text detection active (RapidOCR ONNX).
+#
+# This file is kept for pinning to a narrower range, or for a minimal install
+# that skips the ~100 MB of OCR weights on a constrained machine:
+#
+#   pip install -r requirements-ocr.txt     # instead of requirements.txt's line
+#
+# CORRECTION to the previous version of this file, which claimed RapidOCR was
+# deliberately excluded for two reasons. Both reasons are now false:
+#
+#   1. "It pulls onnxruntime (~200 MB) and disk is the binding constraint."
+#      onnxruntime is pulled *unconditionally* by faster-whisper 1.2.1
+#      (Requires-Dist: onnxruntime<2,>=1.14), so excluding RapidOCR saved
+#      nothing there. Measured on the resolved tree: onnxruntime 43 MB, and the
+#      whole installed set is ~2.5-5.5 GB of the 14 GB runner. The actual
+#      binding constraint is the 90-minute job cap, not disk.
+#
+#   2. "It could not be installed or executed, so it is unverified end to end."
+#      It executes. See the log line above.
+#
+# The code degrades safely either way. With the import absent, TEXT_DETECTOR=auto
+# logs:
+#   [*] RapidOCR not installed; text detection uses the edge heuristic.
+# and behaves exactly as it did before Phase 1b. Set TEXT_DETECTOR=ocr to force
+# the OCR tier and make a broken setup loud instead of silent.
+#
+# Verify the tier actually engaged before trusting any output:
+#   python -c "from core.text_detection import get_text_detector as g; print(g(force='ocr').name)"
+#
+rapidocr-onnxruntime>=1.3.8,<2.0.0

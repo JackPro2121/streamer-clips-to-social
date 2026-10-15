@@ -1,0 +1,3 @@
+[submodule "core"]
+	path = core
+	url = https://github.com/JackPro2121/clips-core.git

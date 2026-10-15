@@ -1,0 +1,37 @@
+# Deep-verification ML tier (CPU-only).
+#
+# Deliberately separate from requirements.txt. The render job keeps its pinned
+# headless OpenCV build; this tier pulls opencv-contrib-python through
+# syncnet-python, and mixing the two in one environment is how the project
+# ended up with three OpenCV distributions fighting over one cv2/ directory.
+#
+# Installed only in jobs that run pretrained audio-visual models:
+#   pip install -r requirements-ml.txt
+#
+# Models are fetched by tools/fetch_models.py from their official sources and
+# SHA-256 verified. TransNetV2 ships its weights inside its own wheel.
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch>=2.2,<3
+torchvision>=0.17,<1
+
+# Lip-sync measurement + per-face active-speaker detection (MIT).
+# Loads the official Oxford VGG SyncNet and S3FD checkpoints.
+syncnet-python==0.2.2
+
+# syncnet-python 0.2.2 imports scenedetect.video_manager, which PySceneDetect
+# 0.7 removed. Pin the 0.6 API line for this tier only; the render job uses the
+# modern scenedetect API and is unaffected.
+scenedetect[opencv]>=0.6,<0.7
+
+# Shot-boundary detection; weights are bundled in the wheel.
+transnetv2-pytorch==1.0.5
+
+# Needed by tools/export_transnetv2_onnx.py (the render job already gets
+# onnxruntime transitively through faster-whisper).
+onnxruntime>=1.17,<2
+# torch >= 2.6's ONNX exporter imports onnxscript at entry.
+onnxscript>=0.1
+# Consolidating external-data exports into a single self-contained file.
+onnx>=1.16
