@@ -1,0 +1,65 @@
+name: Publish Streamer Clip to Buffer
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'GitHub Actions Run ID containing streamer-viral-clips artifact (default: 38962771725)'
+        required: true
+        default: '38962771725'
+        type: string
+      delay_days:
+        description: 'Days to delay posting on Buffer (0 for immediate queue)'
+        required: false
+        default: '0'
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: streamer-publisher-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-to-buffer:
+    name: Publish Artifact to Buffer Queue
+    if: github.repository == 'JackPro2121/streamer-clips-to-social'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download Clip Artifacts from Specified Run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p clips_to_publish
+          gh run download "${{ github.event.inputs.run_id }}" --repo "${{ github.repository }}" --name streamer-viral-clips --dir clips_to_publish
+          ls -la clips_to_publish
+
+      - name: Queue Clips to Streamer Buffer
+        env:
+          PYTHONUNBUFFERED: '1'
+          STREAMER_BUFFER_ACCESS_TOKEN: ${{ secrets.STREAMER_BUFFER_ACCESS_TOKEN }}
+          STREAMER_BUFFER_CHANNEL_IDS: ${{ secrets.STREAMER_BUFFER_CHANNEL_IDS }}
+          STREAMER_WATERMARK: ${{ secrets.STREAMER_WATERMARK || '@streamersclips' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DELAY_DAYS: ${{ github.event.inputs.delay_days }}
+        run: |
+          python tools/publish_artifact_to_buffer.py --dir clips_to_publish --delay-days "$DELAY_DAYS"
