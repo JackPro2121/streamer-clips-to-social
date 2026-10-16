@@ -55,6 +55,7 @@ jobs:
       - name: Queue Clips to Streamer Buffer
         env:
           PYTHONUNBUFFERED: '1'
+          PYTHONPATH: '.'
           STREAMER_BUFFER_ACCESS_TOKEN: ${{ secrets.STREAMER_BUFFER_ACCESS_TOKEN }}
           STREAMER_BUFFER_CHANNEL_IDS: ${{ secrets.STREAMER_BUFFER_CHANNEL_IDS }}
           STREAMER_WATERMARK: ${{ secrets.STREAMER_WATERMARK || '@streamersclips' }}

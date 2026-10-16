@@ -16,6 +16,10 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", line_buffering=True)
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from streamers.buffer_publisher import StreamerBufferPublisher
 from streamers.viral_detector import StreamerClipCandidate
 
