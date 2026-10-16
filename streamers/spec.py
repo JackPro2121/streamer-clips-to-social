@@ -35,6 +35,20 @@ STREAMER_MAX_CLIP_DURATION_S: float = float(
 STREAMER_ENDPOINT_TRIM_MAX_S: float = 2.0
 # Frame-boundary quantisation slack (29.97 fps ≈ 33 ms per frame)
 STREAMER_DURATION_QUANTIZATION_MARGIN_S: float = 0.1
+# Streams end in dead air: "thanks for watching" cards, BRB screens, a frozen
+# final frame, the encoder's last black frame. A window that reaches into the
+# last minutes of the transcript is therefore a candidate for exactly that
+# content. The first live V2 run produced a clip ending 42s before EOF whose
+# final ~0.5s was black and frozen — blocked by the gate after a full render.
+# Selection now keeps this much clear of the transcript tail. The exclusion is
+# dropped when it would leave less than one minimum-length clip of transcript,
+# so short sources keep every second they have.
+STREAMER_TAIL_EXCLUSION_S: float = float(
+    os.getenv("STREAMER_TAIL_EXCLUSION", "120.0")
+)
+# A tail exclusion above this is a config error, not a guard: it would silently
+# discard usable transcript instead of protecting the outro.
+STREAMER_MAX_TAIL_EXCLUSION_S: float = 900.0
 
 # ---------------------------------------------------------------------------
 # Hashtags (AGENTS.md commandment 3)
@@ -149,6 +163,17 @@ def validate_spec() -> None:
         violations.append(
             f"V2 duration window is inverted: min {STREAMER_MIN_CLIP_DURATION_S}s > "
             f"max {STREAMER_MAX_CLIP_DURATION_S}s"
+        )
+    if STREAMER_TAIL_EXCLUSION_S < 0:
+        violations.append(
+            f"V2 tail exclusion ({STREAMER_TAIL_EXCLUSION_S}s) is negative — "
+            "selection would reach into the outro instead of steering clear of it"
+        )
+    if STREAMER_TAIL_EXCLUSION_S > STREAMER_MAX_TAIL_EXCLUSION_S:
+        violations.append(
+            f"V2 tail exclusion ({STREAMER_TAIL_EXCLUSION_S}s) exceeds "
+            f"{STREAMER_MAX_TAIL_EXCLUSION_S}s — that silently discards usable "
+            "transcript instead of guarding the tail"
         )
     if STREAMER_OUTPUT_WIDTH != creative_spec.OUTPUT_WIDTH:
         violations.append(

@@ -57,6 +57,7 @@ from streamers.spec import (
     STREAMER_MAX_CLIP_DURATION_S,
     STREAMER_MIN_CLIP_DURATION_S,
     STREAMER_DURATION_QUANTIZATION_MARGIN_S,
+    STREAMER_TAIL_EXCLUSION_S,
     STREAMER_TRANSCRIPT_CHUNK_CHARS,
     STREAMER_PRE_SCAN_TOP_ZONES,
     STREAMER_PRE_SCAN_WINDOW_S,
@@ -118,6 +119,25 @@ def _build_chunk_text(zone_segs: List[TranscriptSegment]) -> str:
     return "\n".join(lines)
 
 
+def effective_transcript_end(segments: List[TranscriptSegment]) -> float:
+    """Return the last timestamp a clip window may use.
+
+    Streams end in dead air — "thanks for watching" cards, BRB screens, a frozen
+    final frame, the encoder's last black frame. The first live V2 run selected a
+    moment whose window closed at the raw transcript end; the render then shipped
+    a ~0.5s black+frozen tail that the gate had to block after a full render.
+
+    Every window clamp in this module goes through here so selection keeps
+    STREAMER_TAIL_EXCLUSION_S clear of the transcript tail. When the transcript
+    is too short for that exclusion to leave a full clip behind, the raw end is
+    returned unchanged — short sources keep every second they have.
+    """
+    tail_end = max((s.end for s in segments), default=9999.0)
+    if not segments or tail_end <= STREAMER_TAIL_EXCLUSION_S + STREAMER_MIN_CLIP_DURATION_S:
+        return tail_end
+    return tail_end - STREAMER_TAIL_EXCLUSION_S
+
+
 def _prescan_high_energy_zones(
     segments: List[TranscriptSegment],
     top_n: int = STREAMER_PRE_SCAN_TOP_ZONES,
@@ -149,7 +169,7 @@ def _prescan_high_energy_zones(
     if not segments:
         return []
 
-    transcript_end = segments[-1].end
+    transcript_end = effective_transcript_end(segments)
 
     # Build sliding windows at every segment boundary
     scored: List[Tuple[float, float, float]] = []  # (score, start_s, end_s)
@@ -313,11 +333,17 @@ def parse_streamer_clips_json(
     clips_data = parsed.get("clips", [])
     candidates: List[StreamerClipCandidate] = []
 
-    transcript_end = max((s.end for s in segments), default=9999.0)
+    transcript_end = effective_transcript_end(segments)
 
     for c in clips_data:
         start = float(c.get("start_time", 0.0))
         end = float(c.get("end_time", start + 30.0))
+
+        # A candidate that starts inside the excluded tail is an outro moment
+        # (Gemini saw it in the raw transcript). Shifting it backwards would
+        # publish a window nobody asked for, so drop it instead.
+        if start >= transcript_end:
+            continue
 
         # D5 FIX — enforce duration cap BEFORE sentence snapping
         max_end = min(transcript_end, start + STREAMER_MAX_CLIP_DURATION_S)
@@ -628,7 +654,7 @@ def _heuristic_streamer_detector(
     window_s = 35.0
 
     # D6 FIX — derive the true end of transcript once, clamp all windows against it
-    transcript_end = max((s.end for s in segments), default=9999.0)
+    transcript_end = effective_transcript_end(segments)
 
     for i, seg in enumerate(segments):
         start = seg.start

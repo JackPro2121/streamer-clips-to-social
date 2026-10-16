@@ -321,13 +321,16 @@ class TestClipDurationContract(unittest.TestCase):
         from streamers import viral_detector as vd
 
         # end_time pinned to the very end of the transcript: cannot grow forward,
-        # so the window must be grown backwards instead.
-        with patch.object(vd, "_normalize_clip_window", return_value=(1175.0, 1200.0)):
-            out = vd.parse_streamer_clips_json(self._raw(1175.0, 1200.0), self._segments(1200.0), 1)
+        # so the window must be grown backwards instead. This needs a transcript
+        # short enough that STREAMER_TAIL_EXCLUSION_S does not apply (140 <
+        # 120 + 30) — on longer transcripts a window that reached the raw tail
+        # is dropped by selection entirely (see test_v2_live_run_round3.py F-A).
+        with patch.object(vd, "_normalize_clip_window", return_value=(120.0, 140.0)):
+            out = vd.parse_streamer_clips_json(self._raw(120.0, 140.0), self._segments(140.0), 1)
 
         self.assertTrue(out)
         self.assertGreaterEqual(out[0].duration, 30.0 - 0.01, out[0].duration)
-        self.assertLessEqual(out[0].end_time, 1200.01)
+        self.assertLessEqual(out[0].end_time, 140.01)
 
 
 # ---------------------------------------------------------------------------
