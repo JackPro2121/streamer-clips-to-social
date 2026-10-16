@@ -53,6 +53,7 @@ concurrency:
 jobs:
   clip-streamers:
     name: Clip Streamers & Generate Shorts (V2)
+    if: github.repository == 'JackPro2121/streamer-clips-to-social'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
