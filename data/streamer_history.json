@@ -7,16 +7,15 @@
     "ASIwH0eqnY8",
     "PX94ijWcIMA",
     "8YUcubZNbKo",
-    "lcetk9qIzrA"
+    "lcetk9qIzrA",
+    "kzpxNnAK8Pk"
   ],
   "attempts": {
     "xorMK89ttdg": 1,
-    "pLO8AVvIbkg": 1,
-    "kzpxNnAK8Pk": 2
+    "pLO8AVvIbkg": 1
   },
   "errors": {
     "xorMK89ttdg": "no timed transcript available",
-    "pLO8AVvIbkg": "produced no publishable clip",
-    "kzpxNnAK8Pk": "produced no publishable clip"
+    "pLO8AVvIbkg": "produced no publishable clip"
   }
 }
