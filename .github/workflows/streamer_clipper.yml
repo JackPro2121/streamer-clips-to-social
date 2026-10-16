@@ -1,6 +1,12 @@
 name: Streamer Viral Clips to Social (V2)
 
 on:
+  schedule:
+    # Daily 2 Clips Schedule:
+    # Slot 1 Target: 02:00 PM New York (EDT) -> Run starts 1h prior at 17:00 UTC (01:00 PM EDT / 10:00 PM PKT)
+    # Slot 2 Target: 08:00 PM New York (EDT) -> Run starts 1h prior at 23:00 UTC (07:00 PM EDT / 04:00 AM PKT)
+    - cron: '0 17 * * *'
+    - cron: '0 23 * * *'
   workflow_dispatch:
     inputs:
       video_url:
@@ -114,14 +120,19 @@ jobs:
           INPUT_POST_TO_BUFFER: ${{ github.event.inputs.post_to_buffer }}
           INPUT_DELAY_DAYS: ${{ github.event.inputs.delay_days }}
         run: |
-          args=()
-          [ -n "$INPUT_VIDEO_URL" ] && args+=(--video-url "$INPUT_VIDEO_URL")
-          [ "$INPUT_STREAMER" != "all" ] && args+=(--streamer "$INPUT_STREAMER")
-          args+=(--num-clips "${INPUT_NUM_CLIPS:-3}")
-          [ "$INPUT_POST_TO_BUFFER" = "true" ] && args+=(--post-to-buffer)
-          [ -n "$INPUT_DELAY_DAYS" ] && args+=(--delay-days "$INPUT_DELAY_DAYS")
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "[*] Triggered by cron schedule. Running autonomous 1-clip pipeline with direct Buffer queue..."
+            python -u main_streamer.py --num-clips 1 --post-to-buffer
+          else
+            args=()
+            [ -n "$INPUT_VIDEO_URL" ] && args+=(--video-url "$INPUT_VIDEO_URL")
+            [ -n "$INPUT_STREAMER" ] && [ "$INPUT_STREAMER" != "all" ] && args+=(--streamer "$INPUT_STREAMER")
+            args+=(--num-clips "${INPUT_NUM_CLIPS:-2}")
+            [ "$INPUT_POST_TO_BUFFER" = "true" ] && args+=(--post-to-buffer)
+            [ -n "$INPUT_DELAY_DAYS" ] && args+=(--delay-days "$INPUT_DELAY_DAYS")
 
-          python -u main_streamer.py "${args[@]}"
+            python -u main_streamer.py "${args[@]}"
+          fi
 
       - name: Persist Streamer Video History & Cursor
         if: always()
