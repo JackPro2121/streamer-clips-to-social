@@ -62,6 +62,7 @@ from streamers.editing_enhancer import build_streamer_retention_plan
 from streamers.gate import verify_clip, GateResult
 from streamers.layout_compositor import build_streamer_framing
 from streamers.paths import assert_within, safe_output_name, slugify_title
+from streamers.repair import trim_dead_boundaries
 from streamers.spec import (
     STREAMER_MAX_CLIP_DURATION_S,
     STREAMER_MIN_CLIP_DURATION_S,
@@ -610,6 +611,27 @@ def run_streamer_pipeline(
 
             size_mb = rendered.stat().st_size / 1024 / 1024
             print(f"[+] Rendered clip #{idx} ({size_mb:.2f} MB): {rendered.name}")
+
+            # -------------------------------------------------------
+            # 3h-bis. Boundary repair — a render inherits the segment's own
+            # ending: the stream's cut to black, a frozen final frame. Trim
+            # dead frames BEFORE the gate judges the artifact (so it judges
+            # what would actually be published) and before the EDL records a
+            # duration the file no longer has.
+            # -------------------------------------------------------
+            boundary = trim_dead_boundaries(
+                rendered, min_duration_s=STREAMER_MIN_CLIP_DURATION_S
+            )
+            if boundary.changed:
+                clip_duration = boundary.duration_after_s
+                print(
+                    f"  [+] Boundary repair: -{boundary.head_trim_s:.2f}s head / "
+                    f"-{boundary.tail_trim_s:.2f}s tail dead frames "
+                    f"({boundary.duration_before_s:.2f}s -> {boundary.duration_after_s:.2f}s)"
+                )
+            elif boundary.skipped_reason:
+                print(f"  [i] Boundary repair skipped: {boundary.skipped_reason}")
+
             try:
                 import json as _json
                 edl_path = out_clip_path.with_suffix(".edl.json")
@@ -643,6 +665,11 @@ def run_streamer_pipeline(
                         for shot in (getattr(framing, "shots", None) or [])
                     ],
                 }
+                if boundary.changed:
+                    edl_payload["boundary_trim_s"] = {
+                        "head": round(boundary.head_trim_s, 3),
+                        "tail": round(boundary.tail_trim_s, 3),
+                    }
                 edl_path.write_text(_json.dumps(edl_payload, indent=2, default=str), encoding="utf-8")
             except Exception as exc:
                 print(f"[!] Could not write EDL sidecar for clip #{idx}: {exc}")

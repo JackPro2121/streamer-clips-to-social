@@ -24,8 +24,12 @@ but wrong about what it was measuring:
 
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -35,6 +39,14 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from core.transcriber import TranscriptSegment, WordTimestamp  # noqa: E402
+
+try:
+    import cv2  # noqa: F401
+    HAS_CV2 = True
+except Exception:  # pragma: no cover - cv2 ships in requirements
+    HAS_CV2 = False
+
+HAS_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +183,124 @@ class TestTailExclusion(unittest.TestCase):
             with self.assertRaises(ValueError) as oversized:
                 spec_mod.validate_spec()
         self.assertIn("silently discards usable transcript", str(oversized.exception))
+
+
+# ---------------------------------------------------------------------------
+# F-A (repair half) — a render must not carry the stream's dead tail to the gate
+# ---------------------------------------------------------------------------
+@unittest.skipUnless(HAS_FFMPEG and HAS_CV2, "ffmpeg and cv2 are required")
+class TestBoundaryRepair(unittest.TestCase):
+    """C2 — dead head/tail frames are removed before the gate sees the file."""
+
+    @staticmethod
+    def _duration_s(path: Path) -> float:
+        cap = cv2.VideoCapture(str(path))
+        try:
+            fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        finally:
+            cap.release()
+        return frames / fps if fps > 0 else 0.0
+
+    @staticmethod
+    def _make_clip(
+        path: Path, *, head_black_s: float, body_s: float, tail_black_s: float
+    ) -> None:
+        total = head_black_s + body_s + tail_black_s
+        vf = (
+            f"color=c=black:s=270x480:d={total}:r=10,"
+            f"drawbox=x=0:y=0:w=270:h=480:color=gray:t=fill:"
+            f"enable='between(t,{head_black_s},{head_black_s + body_s})'"
+        )
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-f", "lavfi", "-i", vf,
+                "-f", "lavfi", "-i", f"sine=frequency=440:duration={total}",
+                "-shortest",
+                "-c:v", "libx264", "-crf", "23", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "96k",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if proc.returncode != 0:
+            raise AssertionError(proc.stderr[-400:])
+
+    def test_dead_head_and_tail_are_trimmed(self):
+        from streamers.repair import trim_dead_boundaries
+
+        with tempfile.TemporaryDirectory() as tmp:
+            clip = Path(tmp) / "clip.mp4"
+            self._make_clip(clip, head_black_s=1.0, body_s=4.0, tail_black_s=0.5)
+            before = self._duration_s(clip)
+
+            res = trim_dead_boundaries(clip, min_duration_s=3.0)
+
+            self.assertTrue(res.changed)
+            self.assertAlmostEqual(res.head_trim_s, 1.0, delta=0.2)
+            self.assertAlmostEqual(res.tail_trim_s, 0.5, delta=0.2)
+            after = self._duration_s(clip)
+            self.assertAlmostEqual(after, 4.0, delta=0.3)
+            self.assertLess(after, before)
+
+            # Idempotent — the dead frames are gone, a second pass finds nothing.
+            again = trim_dead_boundaries(clip, min_duration_s=3.0)
+            self.assertFalse(again.changed)
+            self.assertIsNone(again.skipped_reason)
+
+    def test_trim_that_would_break_the_floor_is_refused(self):
+        from streamers.repair import trim_dead_boundaries
+
+        with tempfile.TemporaryDirectory() as tmp:
+            clip = Path(tmp) / "clip.mp4"
+            self._make_clip(clip, head_black_s=1.0, body_s=3.0, tail_black_s=0.5)
+            digest = hashlib.sha256(clip.read_bytes()).hexdigest()
+
+            res = trim_dead_boundaries(clip, min_duration_s=4.0)
+
+            self.assertFalse(res.changed)
+            self.assertIn("duration floor", res.skipped_reason or "")
+            self.assertEqual(hashlib.sha256(clip.read_bytes()).hexdigest(), digest)
+
+    def test_clean_clip_is_left_alone(self):
+        from streamers.repair import trim_dead_boundaries
+
+        with tempfile.TemporaryDirectory() as tmp:
+            clip = Path(tmp) / "clip.mp4"
+            self._make_clip(clip, head_black_s=0.0, body_s=5.0, tail_black_s=0.0)
+            digest = hashlib.sha256(clip.read_bytes()).hexdigest()
+
+            res = trim_dead_boundaries(clip, min_duration_s=3.0)
+
+            self.assertFalse(res.changed)
+            self.assertIsNone(res.skipped_reason)
+            self.assertEqual(hashlib.sha256(clip.read_bytes()).hexdigest(), digest)
+
+    def test_all_black_clip_is_refused(self):
+        from streamers.repair import trim_dead_boundaries
+
+        with tempfile.TemporaryDirectory() as tmp:
+            clip = Path(tmp) / "clip.mp4"
+            proc = subprocess.run(
+                [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "color=c=black:s=270x480:d=2:r=10",
+                    "-c:v", "libx264", "-crf", "23", "-pix_fmt", "yuv420p",
+                    str(clip),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr[-400:])
+
+            res = trim_dead_boundaries(clip, min_duration_s=3.0)
+
+            self.assertFalse(res.changed)
+            self.assertIn("dead", res.skipped_reason or "")
 
 
 if __name__ == "__main__":
