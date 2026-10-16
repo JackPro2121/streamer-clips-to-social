@@ -333,8 +333,10 @@ def _caption_collision_check(path, model_path=None) -> dict:
             largest = max(faces, key=lambda r: float(r[2]) * float(r[3]))
             fx, fy, fw, fh = [float(v) for v in largest[:4]]
             face_area = max(1.0, fw * fh)
-            ix0 = max(fx, x0); iy0 = max(fy, y0)
-            ix1 = min(fx + fw, x1); iy1 = min(fy + fh, y1)
+            ix0 = max(fx, x0)
+            iy0 = max(fy, y0)
+            ix1 = min(fx + fw, x1)
+            iy1 = min(fy + fh, y1)
             if ix1 > ix0 and iy1 > iy0:
                 overlap_area = (ix1 - ix0) * (iy1 - iy0)
                 # Significant obscuring collision: requires at least 15% face coverage
@@ -411,17 +413,46 @@ def _visual_black_margin_check(path) -> dict:
             h, w = gray.shape[:2]
             margin = min(margin_px, max(8, h // 30), max(8, w // 30))
 
-            side_samples["top"].append(float((gray[:margin, :] < 16).mean()))
-            side_samples["bottom"].append(float((gray[h - margin:, :] < 16).mean()))
-            side_samples["left"].append(float((gray[:, :margin] < 16).mean()))
-            side_samples["right"].append(float((gray[:, w - margin:] < 16).mean()))
+            # Measure full-length edge bar depth for each side:
+            # A real letterbox/pillarbox has contiguous rows or columns at the border
+            # that are almost entirely black across their full extent (>=85% black pixels).
+            top_bar = 0
+            for r in range(margin):
+                if (gray[r, :] < 16).mean() >= 0.85:
+                    top_bar += 1
+                else:
+                    break
+
+            bot_bar = 0
+            for r in range(h - 1, h - 1 - margin, -1):
+                if (gray[r, :] < 16).mean() >= 0.85:
+                    bot_bar += 1
+                else:
+                    break
+
+            left_bar = 0
+            for c in range(margin):
+                if (gray[:, c] < 16).mean() >= 0.85:
+                    left_bar += 1
+                else:
+                    break
+
+            right_bar = 0
+            for c in range(w - 1, w - 1 - margin, -1):
+                if (gray[:, c] < 16).mean() >= 0.85:
+                    right_bar += 1
+                else:
+                    break
+
+            side_samples["top"].append(top_bar / margin)
+            side_samples["bottom"].append(bot_bar / margin)
+            side_samples["left"].append(left_bar / margin)
+            side_samples["right"].append(right_bar / margin)
 
         if valid == 0:
             return _visual_unavailable(f"no decodable frames sampled in {path}")
 
-        # Persistent margin: compute median black percentage per side.
-        # An actual letterbox or pillarbox bar persists across the entire clip (median ~100%).
-        # A transient dark game scene or HUD element in an isolated frame has median ~0%.
+        # Persistent margin: compute median bar percentage per side across sampled frames.
         side_medians = {
             side: float(np.median(vals)) * 100.0 for side, vals in side_samples.items()
         }
@@ -655,10 +686,18 @@ def verify_clip(
     # ------------------------------------------------------------------
     # 5. Print summary
     # ------------------------------------------------------------------
-    print(f"  {result.summary_line()}")
-    if warnings:
-        print(f"  [gate] ⚠ Warnings: {', '.join(warnings)}")
-    if blocking:
-        print(f"  [gate] ✗ Blocking codes: {', '.join(blocking)}")
+    try:
+        print(f"  {result.summary_line()}")
+        if warnings:
+            print(f"  [gate] ⚠ Warnings: {', '.join(warnings)}")
+        if blocking:
+            print(f"  [gate] ✗ Blocking codes: {', '.join(blocking)}")
+    except UnicodeEncodeError:
+        ascii_summary = result.summary_line().replace("✓", "[PASS]").replace("✗", "[FAIL]")
+        print(f"  {ascii_summary}")
+        if warnings:
+            print(f"  [gate] ! Warnings: {', '.join(warnings)}")
+        if blocking:
+            print(f"  [gate] X Blocking codes: {', '.join(blocking)}")
 
     return result
