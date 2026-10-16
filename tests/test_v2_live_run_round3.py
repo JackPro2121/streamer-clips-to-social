@@ -204,12 +204,18 @@ class TestBoundaryRepair(unittest.TestCase):
 
     @staticmethod
     def _make_clip(
-        path: Path, *, head_black_s: float, body_s: float, tail_black_s: float
+        path: Path,
+        *,
+        head_black_s: float,
+        body_s: float,
+        tail_black_s: float,
+        size: str = "270x480",
     ) -> None:
         total = head_black_s + body_s + tail_black_s
+        box_w, box_h = size.split("x")
         vf = (
-            f"color=c=black:s=270x480:d={total}:r=10,"
-            f"drawbox=x=0:y=0:w=270:h=480:color=gray:t=fill:"
+            f"color=c=black:s={size}:d={total}:r=10,"
+            f"drawbox=x=0:y=0:w={box_w}:h={box_h}:color=gray:t=fill:"
             f"enable='between(t,{head_black_s},{head_black_s + body_s})'"
         )
         proc = subprocess.run(
@@ -301,6 +307,119 @@ class TestBoundaryRepair(unittest.TestCase):
 
             self.assertFalse(res.changed)
             self.assertIn("dead", res.skipped_reason or "")
+
+
+# ---------------------------------------------------------------------------
+# F-B — face stability is a rate, not a distance
+# ---------------------------------------------------------------------------
+class TestFaceStabilityMetric(unittest.TestCase):
+    """C3 — only adjacent-frame face moves count as instability."""
+
+    def test_stable_face_produces_tiny_jumps(self):
+        from streamers.gate import _consecutive_face_jumps
+
+        faces = [(i, 500.0 + (i % 2) * 2.0, 200.0) for i in range(8)]
+        max_px, max_widths, samples = _consecutive_face_jumps(faces)
+
+        self.assertEqual(samples, 7)
+        self.assertAlmostEqual(max_px, 2.0, places=3)
+        self.assertAlmostEqual(max_widths, 0.01, places=3)
+
+    def test_snap_between_adjacent_frames_is_measured(self):
+        from streamers.gate import _consecutive_face_jumps
+
+        faces = [(i, 400.0, 200.0) for i in range(4)]
+        faces += [(4, 700.0, 200.0), (5, 700.0, 200.0)]
+        max_px, max_widths, samples = _consecutive_face_jumps(faces)
+
+        self.assertEqual(samples, 5)
+        self.assertAlmostEqual(max_px, 300.0, places=3)
+        self.assertAlmostEqual(max_widths, 1.5, places=3)
+
+    def test_gap_in_detection_breaks_the_chain(self):
+        from streamers.gate import _consecutive_face_jumps
+
+        faces = [(0, 400.0, 200.0), None, (2, 800.0, 200.0)]
+        max_px, max_widths, samples = _consecutive_face_jumps(faces)
+
+        self.assertEqual((max_px, max_widths, samples), (0.0, 0.0, 0))
+
+    def test_non_adjacent_frames_are_never_compared(self):
+        from streamers.gate import _consecutive_face_jumps
+
+        # 40 frames apart — the same travel the old metric read as one "jump".
+        faces = [(0, 200.0, 180.0), (40, 700.0, 180.0)]
+        max_px, max_widths, samples = _consecutive_face_jumps(faces)
+
+        self.assertEqual(samples, 0)
+        self.assertEqual(max_px, 0.0)
+        self.assertEqual(max_widths, 0.0)
+
+    def test_ratio_uses_the_narrower_face_box(self):
+        from streamers.gate import _consecutive_face_jumps
+
+        faces = [(0, 500.0, 100.0), (1, 560.0, 400.0)]
+        _, max_widths, samples = _consecutive_face_jumps(faces)
+
+        self.assertEqual(samples, 1)
+        self.assertAlmostEqual(max_widths, 0.6, places=3)  # 60px against the 100px box
+
+
+@unittest.skipUnless(HAS_FFMPEG and HAS_CV2, "ffmpeg and cv2 are required")
+class TestFaceJumpBlocking(unittest.TestCase):
+    """C3 — the block reads face widths; a pixel count alone cannot block."""
+
+    def _verify_with_metric(self, tmp: Path, metric: dict):
+        from streamers import gate as gate_mod
+
+        clip = tmp / "clip.mp4"
+        TestBoundaryRepair._make_clip(
+            clip, head_black_s=0.0, body_s=4.0, tail_black_s=0.0, size="1080x1920"
+        )
+        with patch.object(gate_mod, "_face_stability_check", return_value=metric):
+            return gate_mod.verify_clip(
+                clip,
+                run_id="e2e_face_jump",
+                runs_dir=tmp / "runs",
+                min_duration_s=3.0,
+                max_duration_s=5.0,
+            )
+
+    def test_a_snap_sized_jump_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            res = self._verify_with_metric(
+                Path(tmp),
+                {
+                    "available": True,
+                    "face_presence_ratio": 1.0,
+                    "max_horizontal_jump_px": 60.0,
+                    "max_jump_face_widths": 1.2,
+                    "jump_samples": 12,
+                    "sampled_frames": 24,
+                },
+            )
+
+        self.assertIn("v2_excessive_face_jump", res.blocking_codes)
+        self.assertFalse(res.passed)
+
+    def test_large_pixel_jump_with_a_stable_ratio_does_not_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            res = self._verify_with_metric(
+                Path(tmp),
+                {
+                    "available": True,
+                    "face_presence_ratio": 1.0,
+                    # 200px between adjacent frames would have blocked under the
+                    # old 150px rule; against an 800px face box it is a quarter of
+                    # a face width — fast movement, not a framing snap.
+                    "max_horizontal_jump_px": 200.0,
+                    "max_jump_face_widths": 0.25,
+                    "jump_samples": 12,
+                    "sampled_frames": 24,
+                },
+            )
+
+        self.assertNotIn("v2_excessive_face_jump", res.blocking_codes)
 
 
 if __name__ == "__main__":

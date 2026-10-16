@@ -66,6 +66,20 @@ from core.config import MODELS_DIR as _MODELS_DIR
 # YuNet weights live in the shared engine's models dir (env-overridable).
 YUNET_MODEL_PATH = _MODELS_DIR / "face_detection_yunet.onnx"
 
+# Face-stability metric. The gate measures the largest horizontal move of the
+# largest face's centre between two *adjacent* frames, expressed in face widths,
+# in three local windows (roughly 25/50/75% through the clip, 8 frames each).
+#
+# Adjacency is the whole point of the metric. The first live run's clips swayed
+# 4.5px in total, yet the previous implementation — the largest difference
+# between samples ~3s apart — read ordinary head movement as a 273-415px "jump"
+# and blocked both clips. What a viewer experiences as broken tracking is a face
+# that snaps sideways between one frame and the next; at 30fps, 0.75 face widths
+# per 33ms is a whip-pan, not movement.
+FACE_JUMP_MAX_FACE_WIDTHS = 0.75
+FACE_JUMP_WINDOW_FRACTIONS = (0.25, 0.50, 0.75)
+FACE_JUMP_FRAMES_PER_WINDOW = 8
+
 
 # Lazy import: do not fail at module load if ffmpeg is absent in test env
 def _import_verdict():
@@ -118,8 +132,49 @@ def _face_unavailable(reason: str) -> dict:
     }
 
 
+def _consecutive_face_jumps(faces):
+    """Largest horizontal face-centre jumps between adjacent measured frames.
+
+    ``faces`` is an ordered list of ``(frame_index, centre_x, face_width)`` for
+    every frame the check could measure, with ``None`` where no face was found
+    (or the frame was too dark to measure). ``None`` breaks the chain, and a
+    jump is only counted between entries whose frame indices are *adjacent* —
+    those are the only moves that read as one motion to a viewer, so windows
+    that do not touch are never compared across the gap.
+
+    Returns ``(max_px, max_face_widths, samples)`` where ``samples`` counts the
+    adjacent pairs actually compared, so "0.0px over 0 pairs" (nothing
+    measurable) is distinguishable from "0.0px over 40 pairs".
+    """
+    max_px = 0.0
+    max_widths = 0.0
+    samples = 0
+    prev = None
+    for entry in faces:
+        if entry is None:
+            prev = None
+            continue
+        idx, cx, width = entry
+        if prev is not None and idx == prev[0] + 1:
+            jump = abs(cx - prev[1])
+            # Relative to the narrower of the two boxes: the conservative read.
+            widths = jump / max(1.0, min(width, prev[2]))
+            samples += 1
+            max_px = max(max_px, jump)
+            max_widths = max(max_widths, widths)
+        prev = entry
+    return max_px, max_widths, samples
+
+
 def _face_stability_check(path) -> dict:
-    """Sample frames and measure face/track instability in the rendered clip."""
+    """Measure the largest inter-frame face-centre move in three local windows.
+
+    Replaces a metric that sampled frames ~3s apart and compared their centres
+    directly: that measures how far the head travelled between samples, not how
+    stable the framing is. The first live run's clips swayed 4.5px in total and
+    still produced a 273-415px "jump" — every clip blocked for ordinary
+    movement (see FACE_JUMP_MAX_FACE_WIDTHS for what now blocks).
+    """
     model_path = str(YUNET_MODEL_PATH)
     try:
         import cv2
@@ -142,47 +197,48 @@ def _face_stability_check(path) -> dict:
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 1920)
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1080)
         detector = cv2.FaceDetectorYN.create(model_path, "", (w, h), 0.5, 0.3, 5000)
-        sample_count = min(12, total_frames)
-        start_idx = max(0, int(total_frames * 0.15))
-        end_idx = max(start_idx + 1, int(total_frames * 0.85))
-        indices = []
-        span = max(1, end_idx - start_idx)
-        for i in range(sample_count):
-            idx = start_idx + int(i * (span - 1) / max(sample_count - 1, 1))
-            if start_idx <= idx < total_frames:
-                indices.append(idx)
-        indices = sorted(set(indices)) if indices else [max(0, total_frames // 2)]
 
-        prior_cx = None
-        max_jump = 0.0
-        seen = 0
+        window = max(2, FACE_JUMP_FRAMES_PER_WINDOW)
+        faces: list = []
+        read_indices: set = set()
         valid = 0
-        for idx in indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-            ok, frame = cap.read()
-            if not ok or frame is None or frame.size == 0:
-                continue
-            if float(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).mean()) < 12.0:
-                continue
-            valid += 1
-            _, res = detector.detect(frame)
-            if res is None or len(res) == 0:
-                continue
-            # Choose largest face.
-            largest = max(res, key=lambda r: float(r[2]) * float(r[3]))
-            cx = float(largest[0]) + float(largest[2]) / 2.0
-            seen += 1
-            if prior_cx is not None:
-                jump = abs(cx - prior_cx)
-                if jump > max_jump:
-                    max_jump = jump
-            prior_cx = cx
+        seen = 0
+        for fraction in FACE_JUMP_WINDOW_FRACTIONS:
+            first = int(total_frames * fraction) - window // 2
+            first = max(0, min(first, max(0, total_frames - window)))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, first)
+            for offset in range(window):
+                idx = first + offset
+                if idx >= total_frames or idx in read_indices:
+                    continue
+                read_indices.add(idx)
+                ok, frame = cap.read()
+                if not ok or frame is None or frame.size == 0:
+                    faces.append(None)
+                    break
+                if float(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).mean()) < 12.0:
+                    faces.append(None)
+                    continue
+                valid += 1
+                _, res = detector.detect(frame)
+                if res is None or len(res) == 0:
+                    faces.append(None)
+                    continue
+                # Choose largest face.
+                largest = max(res, key=lambda r: float(r[2]) * float(r[3]))
+                seen += 1
+                faces.append(
+                    (idx, float(largest[0]) + float(largest[2]) / 2.0, float(largest[2]))
+                )
 
+        max_jump, max_widths, samples = _consecutive_face_jumps(faces)
         presence = (seen / valid) if valid else 0.0
         return {
             "available": True,
             "face_presence_ratio": round(presence, 3),
             "max_horizontal_jump_px": round(max_jump, 2),
+            "max_jump_face_widths": round(max_widths, 3),
+            "jump_samples": samples,
             "sampled_frames": valid,
             "warning": None,
         }
@@ -445,13 +501,18 @@ def verify_clip(
         )
 
     face_stability = _face_stability_check(path)
-    if face_stability.get("available") and face_stability.get("max_horizontal_jump_px", 0) > 150.0:
+    if (
+        face_stability.get("available")
+        and face_stability.get("max_jump_face_widths", 0.0) > FACE_JUMP_MAX_FACE_WIDTHS
+    ):
         raw_verdict.add(
             verdict_mod.Finding(
                 code="v2_excessive_face_jump",
                 severity="error",
                 message=(
-                    f"V2 face jump {face_stability['max_horizontal_jump_px']:.1f}px exceeds 150px"
+                    f"V2 face jump {face_stability['max_horizontal_jump_px']:.1f}px "
+                    f"({face_stability['max_jump_face_widths']:.2f} face widths) between "
+                    f"adjacent frames exceeds {FACE_JUMP_MAX_FACE_WIDTHS:.2f} face widths"
                 ),
                 spec_clause="streamer face-tracking stability",
                 metrics=face_stability,
