@@ -331,15 +331,21 @@ def detect_stream_layout(
         avg_cx = int(np.median(cxs))
         avg_cy = int(np.median(cys))
         box_w = _even(int(med_fw * 2.8))  # Expand to capture streamer's webcam frame
-        box_h = _even(int(box_w * (9 / 16)))  # 16:9 crop around streamer
+        box_h = _even(int(box_w * STREAMER_SPLIT_PANE_ASPECT_H / STREAMER_SPLIT_PANE_ASPECT_W))
+        if box_h > h:
+            box_h = _even(h)
+            box_w = _even(int(box_h * STREAMER_SPLIT_PANE_ASPECT_W / STREAMER_SPLIT_PANE_ASPECT_H))
 
         wx = _even(max(0, min(avg_cx - box_w // 2, w - box_w)))
         wy = _even(max(0, min(avg_cy - box_h // 2, h - box_h)))
         webcam_box = (wx, wy, box_w, box_h)
 
-        # Content box: Main gameplay / video (typically centered on non-webcam area)
-        cw = _even(int(w * 0.75))
-        ch = _even(int(cw * (9 / 16)))
+        # Content box: Main gameplay / video matching 9:8 pane aspect ratio
+        ch = _even(h)
+        cw = _even(int(ch * STREAMER_SPLIT_PANE_ASPECT_W / STREAMER_SPLIT_PANE_ASPECT_H))
+        if cw > w:
+            cw = _even(w)
+            ch = _even(int(cw * STREAMER_SPLIT_PANE_ASPECT_H / STREAMER_SPLIT_PANE_ASPECT_W))
         # Offset away from webcam side
         cx_offset = 0 if wx > w // 2 else _even(int(w - cw))
         cy_offset = _even(max(0, (h - ch) // 2))

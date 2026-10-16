@@ -207,6 +207,7 @@ def _face_stability_check(path) -> dict:
             first = int(total_frames * fraction) - window // 2
             first = max(0, min(first, max(0, total_frames - window)))
             cap.set(cv2.CAP_PROP_POS_FRAMES, first)
+            last_center = None
             for offset in range(window):
                 idx = first + offset
                 if idx >= total_frames or idx in read_indices:
@@ -215,21 +216,43 @@ def _face_stability_check(path) -> dict:
                 ok, frame = cap.read()
                 if not ok or frame is None or frame.size == 0:
                     faces.append(None)
+                    last_center = None
                     break
                 if float(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).mean()) < 12.0:
                     faces.append(None)
+                    last_center = None
                     continue
                 valid += 1
                 _, res = detector.detect(frame)
                 if res is None or len(res) == 0:
                     faces.append(None)
+                    last_center = None
                     continue
-                # Choose largest face.
-                largest = max(res, key=lambda r: float(r[2]) * float(r[3]))
+
+                # Target association: pick the face closest to the previously tracked
+                # center (within 2.5 face widths) to prevent hopping to gameplay NPC faces.
+                if last_center is not None:
+                    prev_cx, prev_cy, prev_w = last_center
+                    candidates = []
+                    for r in res:
+                        rcx = float(r[0]) + float(r[2]) / 2.0
+                        rcy = float(r[1]) + float(r[3]) / 2.0
+                        dist = ((rcx - prev_cx) ** 2 + (rcy - prev_cy) ** 2) ** 0.5
+                        if dist <= 2.5 * prev_w:
+                            candidates.append((dist, r))
+                    if candidates:
+                        chosen = min(candidates, key=lambda c: c[0])[1]
+                    else:
+                        chosen = max(res, key=lambda r: float(r[2]) * float(r[3]))
+                else:
+                    chosen = max(res, key=lambda r: float(r[2]) * float(r[3]))
+
                 seen += 1
-                faces.append(
-                    (idx, float(largest[0]) + float(largest[2]) / 2.0, float(largest[2]))
-                )
+                cx = float(chosen[0]) + float(chosen[2]) / 2.0
+                cy = float(chosen[1]) + float(chosen[3]) / 2.0
+                cw = float(chosen[2])
+                last_center = (cx, cy, cw)
+                faces.append((idx, cx, cw))
 
         max_jump, max_widths, samples = _consecutive_face_jumps(faces)
         presence = (seen / valid) if valid else 0.0
@@ -287,28 +310,36 @@ def _caption_collision_check(path, model_path=None) -> dict:
         detector = cv2.FaceDetectorYN.create(model_path, "", (w, h), 0.5, 0.3, 5000)
         _, faces = detector.detect(frame)
 
-        # White sticker candidates above heading/meme-box regions in the upper half.
+        # White sticker candidates in heading/meme-box safe region (top 4% to 20% of canvas).
+        # Limits search to the actual meme-box band to avoid catching white shirts, room lights,
+        # or bright game graphics across the rest of the frame.
+        sticker_y_min = int(h * 0.04)
+        sticker_y_max = int(h * 0.20)
         white_mask = (gray > 240)
         white_rows = white_mask.sum(axis=1)
-        top_band_rows = [i for i in range(h // 2) if white_rows[i] > w * 0.05]
+        top_band_rows = [i for i in range(sticker_y_min, sticker_y_max) if white_rows[i] > w * 0.15]
         if not top_band_rows:
-            return {"available": True, "collision": False, "collision_ratio": 0.0}
+            return {"available": True, "collision": False, "collision_overlap_px": 0.0}
 
         y0, y1 = min(top_band_rows), max(top_band_rows)
+        band_h = max(1, y1 - y0 + 1)
         white_cols = white_mask[y0:y1+1, :].sum(axis=0)
-        x0 = int(np.argmax(white_cols > w * 0.01))
-        x1 = w - int(np.argmax(white_cols[::-1] > w * 0.01))
+        x0 = int(np.argmax(white_cols > band_h * 0.3))
+        x1 = w - int(np.argmax(white_cols[::-1] > band_h * 0.3))
 
         collision = False
         overlap_area = 0.0
         if faces is not None and len(faces) > 0:
             largest = max(faces, key=lambda r: float(r[2]) * float(r[3]))
             fx, fy, fw, fh = [float(v) for v in largest[:4]]
+            face_area = max(1.0, fw * fh)
             ix0 = max(fx, x0); iy0 = max(fy, y0)
             ix1 = min(fx + fw, x1); iy1 = min(fy + fh, y1)
             if ix1 > ix0 and iy1 > iy0:
-                collision = True
                 overlap_area = (ix1 - ix0) * (iy1 - iy0)
+                # Significant obscuring collision: requires at least 15% face coverage
+                if overlap_area >= 0.15 * face_area:
+                    collision = True
 
         return {
             "available": True,
@@ -367,9 +398,8 @@ def _visual_black_margin_check(path) -> dict:
             for i in range(sample_count)
         ))
 
-        worst_pct = 0.0
-        worst_side = "none"
         valid = 0
+        side_samples = {"top": [], "bottom": [], "left": [], "right": []}
 
         for idx in indices:
             cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
@@ -381,23 +411,26 @@ def _visual_black_margin_check(path) -> dict:
             h, w = gray.shape[:2]
             margin = min(margin_px, max(8, h // 30), max(8, w // 30))
 
-            top = float((gray[:margin, :] < 16).mean())
-            bottom = float((gray[h - margin:, :] < 16).mean())
-            left = float((gray[:, :margin] < 16).mean())
-            right = float((gray[:, w - margin:] < 16).mean())
-
-            for side, value in (("top", top), ("bottom", bottom), ("left", left), ("right", right)):
-                if value > worst_pct:
-                    worst_pct = value
-                    worst_side = side
+            side_samples["top"].append(float((gray[:margin, :] < 16).mean()))
+            side_samples["bottom"].append(float((gray[h - margin:, :] < 16).mean()))
+            side_samples["left"].append(float((gray[:, :margin] < 16).mean()))
+            side_samples["right"].append(float((gray[:, w - margin:] < 16).mean()))
 
         if valid == 0:
             return _visual_unavailable(f"no decodable frames sampled in {path}")
 
-        worst_pct *= 100.0
+        # Persistent margin: compute median black percentage per side.
+        # An actual letterbox or pillarbox bar persists across the entire clip (median ~100%).
+        # A transient dark game scene or HUD element in an isolated frame has median ~0%.
+        side_medians = {
+            side: float(np.median(vals)) * 100.0 for side, vals in side_samples.items()
+        }
+        worst_side = max(side_medians, key=side_medians.get)
+        worst_pct = side_medians[worst_side]
+
         return {
             "available": True,
-            "passed": worst_pct < 10.0,
+            "passed": worst_pct < 20.0,
             "worst_margin_pct": round(worst_pct, 2),
             "worst_side": worst_side,
             "sampled_frames": valid,
