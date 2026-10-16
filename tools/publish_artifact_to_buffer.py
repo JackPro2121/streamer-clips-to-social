@@ -20,8 +20,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from streamers.buffer_publisher import StreamerBufferPublisher
-from streamers.viral_detector import StreamerClipCandidate
+from streamers.buffer_publisher import StreamerBufferPublisher  # noqa: E402
+from streamers.viral_detector import StreamerClipCandidate  # noqa: E402
 
 
 def publish_clips_from_dir(directory: Path, delay_days: int = 0) -> int:
@@ -35,11 +35,18 @@ def publish_clips_from_dir(directory: Path, delay_days: int = 0) -> int:
         # Check subdirectories
         mp4_files = sorted(directory.rglob("*.mp4"))
 
+    # Filter out preview and temporary videos so only final production clips are queued
+    mp4_files = [
+        f for f in mp4_files
+        if not f.stem.endswith(("_preview", "_temp"))
+        and not f.name.endswith(("_preview.mp4", "_temp.mp4", ".preview.mp4"))
+    ]
+
     if not mp4_files:
-        print(f"[-] No .mp4 files found in {directory}")
+        print(f"[-] No valid production .mp4 files found in {directory}")
         return 1
 
-    print(f"[+] Found {len(mp4_files)} clip(s) to publish in {directory}")
+    print(f"[+] Found {len(mp4_files)} production clip(s) to publish in {directory}")
 
     success_count = 0
     for clip_path in mp4_files:
