@@ -19,9 +19,9 @@ on:
         default: ''
         type: string
       streamer:
-        description: 'Target Streamer for Auto-Discovery'
+        description: 'Target Streamer for Auto-Discovery (default: Kai Cenat)'
         required: false
-        default: 'all'
+        default: 'kai_cenat'
         type: choice
         options:
           - 'all'
@@ -125,8 +125,8 @@ jobs:
           INPUT_DELAY_DAYS: ${{ github.event.inputs.delay_days }}
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "[*] Triggered by cron schedule. Running autonomous 1-clip pipeline with direct Buffer queue..."
-            python -u main_streamer.py --num-clips 1 --post-to-buffer
+            echo "[*] Triggered by cron schedule. Running autonomous Kai Cenat pipeline with direct Buffer queue..."
+            python -u main_streamer.py --streamer kai_cenat --num-clips 1 --post-to-buffer
           else
             args=()
             [ -n "$INPUT_VIDEO_URL" ] && args+=(--video-url "$INPUT_VIDEO_URL")
