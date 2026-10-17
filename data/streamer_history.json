@@ -14,11 +14,13 @@
   "attempts": {
     "xorMK89ttdg": 1,
     "pLO8AVvIbkg": 1,
-    "kzpxNnAK8Pk": 1
+    "kzpxNnAK8Pk": 1,
+    "Od9g7XfjiHg": 1
   },
   "errors": {
     "xorMK89ttdg": "no timed transcript available",
     "pLO8AVvIbkg": "produced no publishable clip",
-    "kzpxNnAK8Pk": "produced no publishable clip"
+    "kzpxNnAK8Pk": "produced no publishable clip",
+    "Od9g7XfjiHg": "produced no publishable clip"
   }
 }
