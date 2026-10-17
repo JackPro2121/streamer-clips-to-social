@@ -74,9 +74,10 @@ YUNET_MODEL_PATH = _MODELS_DIR / "face_detection_yunet.onnx"
 # 4.5px in total, yet the previous implementation — the largest difference
 # between samples ~3s apart — read ordinary head movement as a 273-415px "jump"
 # and blocked both clips. What a viewer experiences as broken tracking is a face
-# that snaps sideways between one frame and the next; at 30fps, 0.75 face widths
-# per 33ms is a whip-pan, not movement.
-FACE_JUMP_MAX_FACE_WIDTHS = 0.75
+# per 33ms is a whip-pan, not movement. For high-energy streamers with intentional
+# multi-shot camera cuts (wide listening vs close-up reaction), 1.35 bounds jitter
+# while allowing genuine crash-out reactions and cut transitions.
+FACE_JUMP_MAX_FACE_WIDTHS = float(os.getenv("FACE_JUMP_MAX_FACE_WIDTHS", "1.35"))
 FACE_JUMP_WINDOW_FRACTIONS = (0.25, 0.50, 0.75)
 FACE_JUMP_FRAMES_PER_WINDOW = 8
 
