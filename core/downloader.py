@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 from typing import Optional, Dict, Any, List, Tuple
 import subprocess
+import uuid
 import yt_dlp
 import requests
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -58,6 +59,28 @@ def _is_trusted_apify_url(url: str) -> bool:
         or hostname == "apify.dev"
         or hostname.endswith(".apify.dev")
     )
+
+
+def _normalize_container_pts(path: Path) -> Path:
+    """Fast remux to reset presentation timestamps to 0 and ensure A/V streams are locked."""
+    remux_out = path.with_name(f".{path.stem}.{uuid.uuid4().hex}.remux{path.suffix or '.mp4'}")
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-i", str(path),
+            "-c", "copy",
+            "-avoid_negative_ts", "make_zero",
+            "-fflags", "+genpts",
+            "-movflags", "+faststart",
+            str(remux_out)
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=45)
+        if res.returncode == 0 and remux_out.exists() and remux_out.stat().st_size > 0:
+            os.replace(remux_out, path)
+    except Exception as e:
+        if remux_out.exists():
+            remux_out.unlink()
+        print(f"[!] Container PTS normalization note: {e}")
+    return path
 
 
 class VideoUnavailableError(Exception):
@@ -529,6 +552,7 @@ def download_segment_via_apify(
                 for chunk in stream_res.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         f.write(chunk)
+        _normalize_container_pts(out_file)
         height = get_video_height(out_file)
         from core.preflight import preflight_source
 
@@ -1401,6 +1425,7 @@ def download_clip_segment(
                     produced = candidates[0]
 
             if produced.exists() and produced.stat().st_size > 500_000:
+                _normalize_container_pts(produced)
                 h = get_video_height(produced)
                 if not h or h <= 0:
                     print(f"  [-] Client '{label}' produced audio-only or non-video stream. Trying next client...")

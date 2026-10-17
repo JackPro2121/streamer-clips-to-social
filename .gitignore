@@ -47,6 +47,9 @@ scratch/
 analysis_*/
 audit_inspection/
 test_*.ass
+artifacts/
+data/artifacts_*/
+data/verdicts_*/
 
 # Documentation & notes (keep private scratch docs ignored, allow core docs)
 *.md

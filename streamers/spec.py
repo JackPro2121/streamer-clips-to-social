@@ -60,7 +60,7 @@ STREAMER_HASHTAG_MAX: int = 4
 # Face tracking / 3-Tier State Machine (AGENTS.md V2 §SFace)
 # ---------------------------------------------------------------------------
 # Minimum seconds a face must be absent before TIER-2 → TIER-3 transition
-STREAMER_TIER2_HOLD_S: float = 1.5
+STREAMER_TIER2_HOLD_S: float = 2.5
 # Minimum seconds a face track must persist before we treat it as a real person
 # (prevents a single streamer walking across the room from triggering split-screen)
 STREAMER_IDENTITY_MIN_DWELL_S: float = 2.0

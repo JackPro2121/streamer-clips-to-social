@@ -552,6 +552,24 @@ def verify_clip(
             )
         )
 
+    # Enforce strict zero-drift A/V sync (stops any lip-sync drift before publish)
+    av_sync_metrics = getattr(raw_verdict, "metrics", {}).get("av_sync", {})
+    dur_delta = abs(float(av_sync_metrics.get("duration_delta_ms", 0.0) or 0.0))
+    start_delta = abs(float(av_sync_metrics.get("start_delta_ms", 0.0) or 0.0))
+    if dur_delta > 40.0 or start_delta > 35.0:
+        raw_verdict.add(
+            verdict_mod.Finding(
+                code="v2_av_sync_drift",
+                severity="error",
+                message=(
+                    f"V2 A/V sync drift detected: duration delta {dur_delta:.1f}ms, "
+                    f"start delta {start_delta:.1f}ms exceeds strict 40ms broadcast limit"
+                ),
+                spec_clause="streamer frame-accurate lip-sync",
+                metrics=av_sync_metrics,
+            )
+        )
+
     caption_collision = _caption_collision_check(path)
     if caption_collision.get("available") and caption_collision.get("collision"):
         raw_verdict.add(

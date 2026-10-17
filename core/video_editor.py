@@ -308,25 +308,13 @@ PUNCH_ZOOM_RAMP_FRAMES = 36
 
 
 def _punch_zoom_filter(motion: str, shot_frames: int) -> str:
+    """Speed-safe punch-zoom stub.
+    
+    zoompan resets timestamps and frame rates, creating severe A/V lip-sync drift
+    over multi-shot renders. Frame motion is owned cleanly by _motion_guarantee_filter
+    and peak intensity zooms are owned by the PTS-preserving overlay filter.
     """
-    zoompan chain for an animated punch-zoom, or "" when none is wanted.
-
-    `motion` is one of drift / push_in / pull_out / hold. The ramp is expressed
-    over the first PUNCH_ZOOM_RAMP_FRAMES output frames and then plateaus, which
-    is acceptable precisely because the crop drift underneath never stops.
-    """
-    if motion not in ("push_in", "pull_out"):
-        return ""
-    ramp = max(2, min(PUNCH_ZOOM_RAMP_FRAMES, max(2, int(shot_frames))))
-    if motion == "push_in":
-        zoom_expr = f"1+{PUNCH_ZOOM_AMOUNT}*min(1,on/{ramp})"
-    else:
-        zoom_expr = f"1+{PUNCH_ZOOM_AMOUNT}*(1-min(1,on/{ramp}))"
-    return (
-        f"zoompan=z='{zoom_expr}':"
-        f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
-        f"d=1:s={OUTPUT_WIDTH}x{OUTPUT_HEIGHT}:fps={FPS},setsar=1:1"
-    )
+    return ""
 
 
 def _motion_guarantee_filter(motion_gain: float = 1.0) -> str:
@@ -473,7 +461,7 @@ def build_video_filtergraph(
                 h_x = s_cx
                 h_y = s_cy
                 shot_f = (
-                    f"[0:v]trim=start={s_start:.2f}:end={s_end:.2f},setpts=PTS-STARTPTS,split=3[p{i}_c][p{i}_s][p{i}_h];"
+                    f"[0:v]trim=start={s_start:.3f}:end={s_end:.3f},setpts=PTS-STARTPTS,split=3[p{i}_c][p{i}_s][p{i}_h];"
                     f"[p{i}_c]crop={cw}:{ch}:{canvas_x}:{canvas_y},"
                     f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:force_original_aspect_ratio=increase,"
                     f"crop={OUTPUT_WIDTH}:{OUTPUT_HEIGHT},boxblur=30:5,"
@@ -498,7 +486,7 @@ def build_video_filtergraph(
                     (s_cx, s_cy, s_cw, s_ch), video_width, video_height
                 )
                 shot_f = (
-                    f"[0:v]trim=start={s_start:.2f}:end={s_end:.2f},setpts=PTS-STARTPTS,crop={s_cw}:{s_ch}:{s_cx}:{s_cy},split=2[s{i}_fg_in][s{i}_bg_in];"
+                    f"[0:v]trim=start={s_start:.3f}:end={s_end:.3f},setpts=PTS-STARTPTS,crop={s_cw}:{s_ch}:{s_cx}:{s_cy},split=2[s{i}_fg_in][s{i}_bg_in];"
                     f"[s{i}_bg_in]scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:force_original_aspect_ratio=increase,crop={OUTPUT_WIDTH}:{OUTPUT_HEIGHT},boxblur=30:5,eq=brightness=-0.16:contrast=1.12[s{i}_bg];"
                     f"[s{i}_fg_in]crop=iw*0.92:ih*0.92:x='(iw-iw*0.92)/2':y='(ih-ih*0.92)/2',scale={OUTPUT_WIDTH}:-1:force_original_aspect_ratio=decrease,{studio_grade}[s{i}_fg];"
                     f"[s{i}_bg][s{i}_fg]overlay=(W-w)/2:(H-h)/2,setsar=1:1,fps={FPS}[{label}]"
@@ -529,7 +517,7 @@ def build_video_filtergraph(
                 # trade worth making: a viewer cannot read a cropped eyebrow, but
                 # they certainly notice half the frame going black.
                 shot_f = (
-                    f"[0:v]trim=start={s_start:.2f}:end={s_end:.2f},setpts=PTS-STARTPTS,split=2[s{i}_p1][s{i}_p2];"
+                    f"[0:v]trim=start={s_start:.3f}:end={s_end:.3f},setpts=PTS-STARTPTS,split=2[s{i}_p1][s{i}_p2];"
                     f"[s{i}_p1]crop={s1_w}:{s1_h}:{s1_x}:{s1_y},scale={OUTPUT_WIDTH}:{half_h}:flags=lanczos+accurate_rnd:force_original_aspect_ratio=increase,crop={OUTPUT_WIDTH}:{half_h},setsar=1:1[s{i}_top];"
                     f"[s{i}_p2]crop={s2_w}:{s2_h}:{s2_x}:{s2_y},scale={OUTPUT_WIDTH}:{half_h}:flags=lanczos+accurate_rnd:force_original_aspect_ratio=increase,crop={OUTPUT_WIDTH}:{half_h},setsar=1:1[s{i}_bot];"
                     f"[s{i}_top][s{i}_bot]vstack=inputs=2,drawbox=x=0:y={half_h - 3}:w={OUTPUT_WIDTH}:h=6:color=black:t=fill,scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=lanczos+accurate_rnd,setsar=1:1,fps={FPS}[{label}]"
@@ -562,7 +550,7 @@ def build_video_filtergraph(
                         cx_expr = f"{x_start} + ({x_end}-{x_start})*min(1.0,max(0.0,t/{shot_dur:.2f}))"
                         crop_x_expr = f"max({active_x},min({cx_expr}-{eff_w//2},{active_x + active_w}-{eff_w}))"
                         shot_f = (
-                            f"[0:v]trim=start={s_start:.2f}:end={s_end:.2f},setpts=PTS-STARTPTS,"
+                            f"[0:v]trim=start={s_start:.3f}:end={s_end:.3f},setpts=PTS-STARTPTS,"
                             f"crop={eff_w}:{eff_h}:'{crop_x_expr}':{eff_y},"
                             f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=lanczos+accurate_rnd,setsar=1:1,fps={FPS}{',' + punch if punch else ''}[{label}]"
                         )
@@ -570,7 +558,7 @@ def build_video_filtergraph(
                         base_cx = shot.crop_x + target_crop_w // 2
                         eff_x = max(active_x, min(base_cx - eff_w // 2, active_x + active_w - eff_w))
                         shot_f = (
-                            f"[0:v]trim=start={s_start:.2f}:end={s_end:.2f},setpts=PTS-STARTPTS,"
+                            f"[0:v]trim=start={s_start:.3f}:end={s_end:.3f},setpts=PTS-STARTPTS,"
                             f"crop={eff_w}:{eff_h}:{eff_x}:{eff_y},"
                             f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=lanczos+accurate_rnd,setsar=1:1,fps={FPS}{',' + punch if punch else ''}[{label}]"
                         )
@@ -583,14 +571,14 @@ def build_video_filtergraph(
                         cx_expr = f"{x_start} + ({x_end}-{x_start})*min(1.0,max(0.0,t/{shot_dur:.2f}))"
                         crop_x_expr = f"max({active_x},min({cx_expr}-{target_crop_w//2},{active_x + active_w}-{target_crop_w}))"
                         shot_f = (
-                            f"[0:v]trim=start={s_start:.2f}:end={s_end:.2f},setpts=PTS-STARTPTS,"
+                            f"[0:v]trim=start={s_start:.3f}:end={s_end:.3f},setpts=PTS-STARTPTS,"
                             f"crop={target_crop_w}:{s_ch}:'{crop_x_expr}':{s_cy},"
                             f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=lanczos+accurate_rnd,setsar=1:1,fps={FPS}{',' + punch if punch else ''}[{label}]"
                         )
                     else:
                         crop_x = max(active_x, min(shot.crop_x, active_x + active_w - target_crop_w))
                         shot_f = (
-                            f"[0:v]trim=start={s_start:.2f}:end={s_end:.2f},setpts=PTS-STARTPTS,"
+                            f"[0:v]trim=start={s_start:.3f}:end={s_end:.3f},setpts=PTS-STARTPTS,"
                             f"crop={target_crop_w}:{s_ch}:{crop_x}:{s_cy},"
                             f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=lanczos+accurate_rnd,setsar=1:1,fps={FPS}{',' + punch if punch else ''}[{label}]"
                         )
@@ -611,7 +599,7 @@ def build_video_filtergraph(
         else:
             cx = framing.smoothed_center_x or (active_x + active_w // 2)
             static_crop_x = max(active_x, min(cx - crop_w // 2, active_x + active_w - crop_w))
-        trim_prefix = f"trim=start={time_offset:.2f},setpts=PTS-STARTPTS," if time_offset > 0.0 else ""
+        trim_prefix = f"trim=start={time_offset:.3f},setpts=PTS-STARTPTS," if time_offset > 0.0 else ""
         # NOTE: `flags` belongs on `scale`; the `crop` filter has no `flags`
         # option, so `crop=...:flags=...` makes FFmpeg abort the whole graph.
         v_filter = f"[0:v]{trim_prefix}crop={crop_w}:{active_h}:{static_crop_x}:{active_y},scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=lanczos+accurate_rnd:force_original_aspect_ratio=increase,crop={OUTPUT_WIDTH}:{OUTPUT_HEIGHT},{studio_grade},fps={FPS}[base]"
@@ -630,7 +618,7 @@ def build_video_filtergraph(
         # `increase` + `crop` rather than `decrease` + `pad`, for the reason given on
         # the per-shot split_screen branch above: the pad chain is what put 270px of
         # black on each side of a mis-proportioned pane in the published artifact.
-        trim_prefix = f"trim=start={time_offset:.2f},setpts=PTS-STARTPTS," if time_offset > 0.0 else ""
+        trim_prefix = f"trim=start={time_offset:.3f},setpts=PTS-STARTPTS," if time_offset > 0.0 else ""
         v_filter = (
             f"[0:v]{trim_prefix}split=2[s1_in][s2_in];"
             f"[s1_in]crop={s1_w}:{s1_h}:{s1_x}:{s1_y},scale={OUTPUT_WIDTH}:{half_h}:flags=lanczos+accurate_rnd:force_original_aspect_ratio=increase,crop={OUTPUT_WIDTH}:{half_h},setsar=1:1,{studio_grade}[top_pane];"
@@ -638,7 +626,7 @@ def build_video_filtergraph(
             f"[top_pane][bottom_pane]vstack=inputs=2,drawbox=x=0:y={half_h - 3}:w={OUTPUT_WIDTH}:h=6:color=black:t=fill,fps={FPS}[base]"
         )
     else:
-        trim_prefix = f"trim=start={time_offset:.2f},setpts=PTS-STARTPTS," if time_offset > 0.0 else ""
+        trim_prefix = f"trim=start={time_offset:.3f},setpts=PTS-STARTPTS," if time_offset > 0.0 else ""
         v_filter = (
             f"[0:v]{trim_prefix}crop={active_w}:{active_h}:{active_x}:{active_y},split=2[bg_in][fg_in];"
             f"[bg_in]scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:force_original_aspect_ratio=increase,"
@@ -652,21 +640,24 @@ def build_video_filtergraph(
     # For professional result, we apply a subtle zoom overlay or we use the 
     # zoompan filter at the end of the base.
     if peak_intensity_segments:
-        # D16 fix: zoompan `it` is a FRAME counter (0-indexed), but
-        # peak_intensity_segments contain timestamps in SECONDS.
-        # Multiply by FPS to convert seconds → frame indices.
-        # D17 fix: Remove `not IS_CI` guard. CI also needs punch-zoom; cap
-        # segment count via STREAMER_PUNCH_ZOOM_MAX_SEGMENTS to keep the
-        # filtergraph string from growing unbounded on long scream runs.
         _MAX_ZOOM_SEGS = int(os.environ.get("STREAMER_PUNCH_ZOOM_MAX_SEGMENTS", "3"))
         active_segs = peak_intensity_segments[:_MAX_ZOOM_SEGS]
-        segments_logic = " + ".join(
-            [f"between(it,{int(s[0]*FPS)},{int(s[1]*FPS)})" for s in active_segs]
+        # Speed-safe, zero-drift punch zoom:
+        # Use split + crop/scale + overlay(enable='between(t,...)').
+        # This completely replaces zoompan (which altered frame rates and broke A/V lip-sync).
+        # overlay preserves 100% of the input timestamps and guarantees video never drifts from audio.
+        segments_logic = "+".join(
+            [f"between(t,{s[0]:.2f},{s[1]:.2f})" for s in active_segs]
         )
-        # zoom factor 1.2 — keeps viewer anchored while signalling energy spike
+        zoom_w = int(OUTPUT_WIDTH / 1.2) // 2 * 2
+        zoom_h = int(OUTPUT_HEIGHT / 1.2) // 2 * 2
+        zoom_x = (OUTPUT_WIDTH - zoom_w) // 2
+        zoom_y = (OUTPUT_HEIGHT - zoom_h) // 2
         zoom_f = (
-            f"[base_in]zoompan=z='if({segments_logic},1.2,1.0)':"
-            f"d=1:s={OUTPUT_WIDTH}x{OUTPUT_HEIGHT},fps={FPS}[zoomed]"
+            f"[base_in]split=2[pz_main][pz_crop_in];"
+            f"[pz_crop_in]crop={zoom_w}:{zoom_h}:{zoom_x}:{zoom_y},"
+            f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=lanczos+accurate_rnd,setsar=1:1[pz_zoomed];"
+            f"[pz_main][pz_zoomed]overlay=0:0:enable='{segments_logic}'[zoomed]"
         )
         filters[-1] = filters[-1].replace("[base]", "[base_in]")
         filters[-1] = filters[-1] + f";{zoom_f}"

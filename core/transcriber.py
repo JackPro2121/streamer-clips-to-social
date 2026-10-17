@@ -198,8 +198,7 @@ def transcribe_audio_whisper(
         str(video_or_audio_path),
         beam_size=5,
         word_timestamps=True,
-        vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=500)
+        vad_filter=False,  # Keep full unbroken audio timeline for 100% frame-accurate word timestamps
     )
 
     results: List[TranscriptSegment] = []

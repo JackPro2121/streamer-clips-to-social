@@ -180,8 +180,18 @@ def analyze_streamer_clip_framing(
     target_crop_w = min(target_crop_w, active_w)
     target_crop_w -= target_crop_w % 2
 
-    # 2. Initialize Streamer Identity Tracker
+    # 2. Initialize Streamer Identity Tracker and Audio Profile
     tracker = StreamerIdentityTracker(w, h, streamer_name=streamer_name)
+
+    try:
+        from core.active_speaker import _audio_envelope
+        audio_env = _audio_envelope(video_path, fps=int(video_fps))
+    except Exception:
+        audio_env = []
+    med_audio = float(np.median(audio_env)) if audio_env else 0.0
+
+    prev_mouth_patch = None
+    recent_mouth_motions: List[float] = []
 
     # 3. Fast sequential frame sampling
     step_frames = max(1, int(round(video_fps / sample_fps)))
@@ -252,12 +262,39 @@ def analyze_streamer_clip_framing(
             )
 
             if is_match and best_box is not None:
-                # TIER 1: Streamer LOCKED
+                # TIER 1: Streamer LOCKED or LISTENING
                 cx = best_box[0] + best_box[2] // 2
                 cy = best_box[1] + best_box[3] // 2
                 last_known_cx, last_known_cy = cx, cy
                 last_known_w, last_known_h = best_box[2], best_box[3]
                 last_seen_time = rel_t
+
+                # Measure mouth motion to detect whether streamer is talking vs listening
+                bx, by, bw, bh = best_box
+                x0 = max(0, bx)
+                y0 = max(0, int(by + bh * 0.55))
+                x1 = min(frame.shape[1], bx + bw)
+                y1 = min(frame.shape[0], by + bh)
+                mouth_roi = frame[y0:y1, x0:x1]
+                diff = 0.0
+                if mouth_roi.size > 0:
+                    mouth_patch = cv2.resize(cv2.cvtColor(mouth_roi, cv2.COLOR_BGR2GRAY), (24, 12)).astype(np.float32)
+                    if prev_mouth_patch is not None and prev_mouth_patch.shape == mouth_patch.shape:
+                        diff = float(np.mean(np.abs(mouth_patch - prev_mouth_patch)))
+                    prev_mouth_patch = mouth_patch
+                recent_mouth_motions.append(diff)
+
+                # Determine whether streamer is listening to external voice/Discord
+                curr_audio = audio_env[frame_counter] if frame_counter < len(audio_env) else 0.0
+                rolling_mouth = float(np.mean(recent_mouth_motions[-8:])) if len(recent_mouth_motions) >= 4 else 1.0
+
+                is_listening = (
+                    len(recent_mouth_motions) >= 6 and
+                    rolling_mouth < 0.40 and
+                    curr_audio > (med_audio * 1.3)
+                )
+
+                pt_state = "LISTENING" if is_listening else "LOCKED"
 
                 raw_tracks.append(StreamerTrackPoint(
                     time_s=rel_t,
@@ -267,7 +304,7 @@ def analyze_streamer_clip_framing(
                     box_h=best_box[3],
                     confidence=best_score,
                     is_streamer=True,
-                    state="LOCKED"
+                    state=pt_state
                 ))
             else:
                 time_since_seen = rel_t - last_seen_time if last_seen_time >= 0 else 999.0
@@ -323,11 +360,11 @@ def analyze_streamer_clip_framing(
 
     for pt in raw_tracks:
         is_state_change = (
-            (pt.state == "OFF_SCREEN" and current_state != "OFF_SCREEN") or
-            (pt.state != "OFF_SCREEN" and current_state == "OFF_SCREEN")
+            (pt.state in ("OFF_SCREEN", "LISTENING") and current_state not in ("OFF_SCREEN", "LISTENING")) or
+            (pt.state not in ("OFF_SCREEN", "LISTENING") and current_state in ("OFF_SCREEN", "LISTENING"))
         )
 
-        if is_state_change and (pt.time_s - shot_start_t) >= 1.2:
+        if is_state_change and (pt.time_s - shot_start_t) >= 2.5:
             shot_end_t = pt.time_s
             shots.append(_build_shot_from_points(
                 shot_start_t, shot_end_t, shot_pts, current_state,
@@ -393,8 +430,8 @@ def _build_shot_from_points(
     active_w: int,
     active_h: int
 ) -> ShotPlan:
-    """Creates a ShotPlan tailored for streamer state (LOCKED/HOLD vs OFF_SCREEN)."""
-    if state == "OFF_SCREEN":
+    """Creates a ShotPlan tailored for streamer state (LOCKED/HOLD vs OFF_SCREEN/LISTENING)."""
+    if state in ("OFF_SCREEN", "LISTENING"):
         return ShotPlan(
             start=start_t,
             end=end_t,
