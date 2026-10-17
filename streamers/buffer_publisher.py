@@ -367,3 +367,174 @@ class StreamerBufferPublisher:
                 break
 
         return results
+
+    def get_posts(self, channel_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Queries posts from specified or all connected channels."""
+        if not self.token:
+            self.last_error = "STREAMER_BUFFER_ACCESS_TOKEN is missing"
+            return []
+
+        channels = self.get_channels()
+        if not channels:
+            return []
+
+        target_ids = channel_ids or self.channel_ids or [ch["id"] for ch in channels]
+        all_posts = []
+
+        query = """
+        query ListPosts($organizationId: OrganizationId!, $channelIds: [ChannelId!]) {
+          posts(input: {organizationId: $organizationId, filter: {channelIds: $channelIds}}) {
+            edges {
+              node {
+                id
+                status
+                text
+                dueAt
+                channelId
+                assets {
+                  ... on VideoAsset {
+                    source
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        for ch in channels:
+            ch_id = ch["id"]
+            if ch_id not in target_ids:
+                continue
+            org_id = ch.get("organizationId", "default_org")
+
+            try:
+                res = requests.post(
+                    BUFFER_GRAPHQL_ENDPOINT,
+                    headers=self.headers,
+                    json={
+                        "query": query,
+                        "variables": {
+                            "organizationId": org_id,
+                            "channelIds": [ch_id],
+                        },
+                    },
+                    timeout=20,
+                )
+                if res.status_code != 200:
+                    print(f"[-] Buffer posts query failed for channel {ch.get('name', ch_id)}: status {res.status_code}")
+                    continue
+                body = res.json()
+                edges = body.get("data", {}).get("posts", {}).get("edges", []) or []
+                for edge in edges:
+                    node = edge.get("node", {})
+                    if node:
+                        node["channel_name"] = ch.get("name")
+                        node["service"] = ch.get("service")
+                        all_posts.append(node)
+            except Exception as e:
+                print(f"[-] Error fetching posts for channel {ch.get('name', ch_id)}: {e}")
+
+        return all_posts
+
+    def delete_post(self, post_id: str) -> bool:
+        """Deletes a post by ID from Buffer via GraphQL mutation."""
+        if not self.token:
+            self.last_error = "STREAMER_BUFFER_ACCESS_TOKEN is missing"
+            return False
+
+        # Attempt deletePost first (standard Buffer GraphQL schema)
+        del_mutation = """
+        mutation DeletePost($input: DeletePostInput!) {
+          deletePost(input: $input) {
+            __typename
+            ... on DeletePostSuccess {
+              id
+            }
+            ... on MutationError {
+              message
+            }
+          }
+        }
+        """
+        try:
+            res = requests.post(
+                BUFFER_GRAPHQL_ENDPOINT,
+                headers=self.headers,
+                json={"query": del_mutation, "variables": {"input": {"id": post_id}}},
+                timeout=15,
+            )
+            data = res.json() if res.status_code == 200 else {}
+            del_result = data.get("data", {}).get("deletePost", {}) or {}
+            typename = del_result.get("__typename")
+            if typename == "DeletePostSuccess" or del_result.get("id") == post_id:
+                return True
+
+            errors = data.get("errors") or []
+            if any("deletePost" in err.get("message", "") for err in errors):
+                # Fallback to destroyPost
+                destroy_mutation = """
+                mutation DestroyPost($input: DestroyPostInput!) {
+                  destroyPost(input: $input) {
+                    __typename
+                    ... on PostActionSuccess {
+                      post {
+                        id
+                      }
+                    }
+                    ... on MutationError {
+                      message
+                    }
+                  }
+                }
+                """
+                res2 = requests.post(
+                    BUFFER_GRAPHQL_ENDPOINT,
+                    headers=self.headers,
+                    json={"query": destroy_mutation, "variables": {"input": {"id": post_id}}},
+                    timeout=15,
+                )
+                data2 = res2.json() if res2.status_code == 200 else {}
+                post_id_res = (
+                    data2.get("data", {})
+                    .get("destroyPost", {})
+                    .get("post", {})
+                    .get("id")
+                )
+                if post_id_res == post_id:
+                    return True
+
+            err = del_result.get("message") or (errors[0].get("message") if errors else res.text[:200])
+            self.last_error = f"Failed to delete post {post_id}: {err}"
+            return False
+        except Exception as e:
+            self.last_error = str(e)
+            return False
+
+    def delete_matching_posts(self, pattern: str) -> List[str]:
+        """Finds and deletes any queued post matching pattern in text or video source."""
+        pattern_lower = pattern.lower().strip()
+        if not pattern_lower:
+            return []
+
+        posts = self.get_posts()
+        deleted_ids = []
+        for post in posts:
+            post_id = post.get("id")
+            text = (post.get("text") or "").lower()
+            sources = []
+            for asset in post.get("assets", []):
+                s = asset.get("source") or ""
+                if s:
+                    sources.append(s.lower())
+
+            matches = (pattern_lower in text) or any(pattern_lower in s for s in sources)
+            if matches and post_id:
+                print(f"[*] Found matching post to delete in Buffer: ID={post_id} | Status={post.get('status')} | Text={post.get('text', '')[:60]}...")
+                if self.delete_post(post_id):
+                    print(f"[+] Successfully deleted post {post_id} from Buffer.")
+                    deleted_ids.append(post_id)
+                else:
+                    print(f"[-] Failed to delete post {post_id}: {self.last_error}")
+
+        return deleted_ids

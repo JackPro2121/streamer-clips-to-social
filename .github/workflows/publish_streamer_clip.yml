@@ -13,6 +13,11 @@ on:
         required: false
         default: '0'
         type: string
+      delete_pattern:
+        description: 'Pattern or keyword to delete matching existing posts from Buffer queue (e.g. Bronx demon mode)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -62,5 +67,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           DELAY_DAYS: ${{ github.event.inputs.delay_days }}
+          DELETE_PATTERN: ${{ github.event.inputs.delete_pattern }}
         run: |
-          python tools/publish_artifact_to_buffer.py --dir clips_to_publish --delay-days "$DELAY_DAYS"
+          python tools/publish_artifact_to_buffer.py --dir clips_to_publish --delay-days "$DELAY_DAYS" --delete-pattern "$DELETE_PATTERN"

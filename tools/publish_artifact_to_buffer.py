@@ -5,6 +5,7 @@ Useful when clips have already been rendered, audited, and verified in a previou
 allowing immediate queueing without having to re-download or re-render source video.
 """
 
+import os
 import sys
 import json
 import argparse
@@ -24,11 +25,18 @@ from streamers.buffer_publisher import StreamerBufferPublisher  # noqa: E402
 from streamers.viral_detector import StreamerClipCandidate  # noqa: E402
 
 
-def publish_clips_from_dir(directory: Path, delay_days: int = 0) -> int:
+def publish_clips_from_dir(
+    directory: Path, delay_days: int = 0, delete_pattern: str = ""
+) -> int:
     publisher = StreamerBufferPublisher()
     if not publisher.token:
         print("[-] STREAMER_BUFFER_ACCESS_TOKEN is missing. Cannot publish.")
         return 1
+
+    if delete_pattern:
+        print(f"[*] Checking for existing Buffer posts matching '{delete_pattern}' to delete...")
+        deleted = publisher.delete_matching_posts(delete_pattern)
+        print(f"[+] Total deleted post(s): {len(deleted)}")
 
     mp4_files = sorted(directory.glob("*.mp4"))
     if not mp4_files:
@@ -144,6 +152,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Publish already generated streamer clips to Buffer")
     parser.add_argument("--dir", type=str, required=True, help="Directory containing clip .mp4 files")
     parser.add_argument("--delay-days", type=int, default=0, help="Days to delay posting (0 for queue)")
+    parser.add_argument(
+        "--delete-pattern",
+        type=str,
+        default=os.getenv("DELETE_BUFFER_PATTERN", ""),
+        help="Optional pattern or title keyword to delete existing matching posts from Buffer queue",
+    )
 
     args = parser.parse_args()
     dir_path = Path(args.dir)
@@ -151,7 +165,9 @@ def main() -> None:
         print(f"[-] Directory {dir_path} does not exist.")
         sys.exit(1)
 
-    exit_code = publish_clips_from_dir(dir_path, delay_days=args.delay_days)
+    exit_code = publish_clips_from_dir(
+        dir_path, delay_days=args.delay_days, delete_pattern=args.delete_pattern
+    )
     sys.exit(exit_code)
 
 

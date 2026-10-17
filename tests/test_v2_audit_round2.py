@@ -501,6 +501,50 @@ class TestPublisherFailClosed(unittest.TestCase):
         self.assertEqual(out[0]["status"], "scheduled")
         self.assertEqual(out[0]["post_id"], "p1")
 
+    def test_get_posts_and_delete_matching_posts(self):
+        pub = self._publisher(["c1"])
+        posts_resp = MagicMock()
+        posts_resp.status_code = 200
+        posts_resp.json.return_value = {
+            "data": {
+                "posts": {
+                    "edges": [
+                        {
+                            "node": {
+                                "id": "post_old_1",
+                                "status": "scheduled",
+                                "text": "Kai went full Bronx demon mode #shorts",
+                                "assets": [{"source": "https://github.com/rel/clip_1_dc0d54.mp4"}],
+                            }
+                        },
+                        {
+                            "node": {
+                                "id": "post_keep_2",
+                                "status": "scheduled",
+                                "text": "Another clip not matching",
+                                "assets": [],
+                            }
+                        },
+                    ]
+                }
+            }
+        }
+        del_resp = MagicMock()
+        del_resp.status_code = 200
+        del_resp.json.return_value = {
+            "data": {
+                "deletePost": {
+                    "__typename": "DeletePostSuccess",
+                    "id": "post_old_1",
+                }
+            }
+        }
+
+        with patch("streamers.buffer_publisher.requests.post", side_effect=[posts_resp, del_resp]):
+            deleted = pub.delete_matching_posts("Bronx demon mode")
+
+        self.assertEqual(deleted, ["post_old_1"])
+
 
 # ---------------------------------------------------------------------------
 # P1-7 — bounded retention
