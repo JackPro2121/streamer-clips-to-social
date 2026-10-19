@@ -399,7 +399,6 @@ def _visual_black_margin_check(path) -> dict:
         if total_frames <= 0:
             return _visual_unavailable(f"frame count unreadable for {path}")
 
-        margin_px = 40
         sample_count = min(12, total_frames)
         indices = [0] if sample_count <= 1 else sorted(set(
             int(i * (total_frames - 1) / (sample_count - 1))
@@ -417,57 +416,65 @@ def _visual_black_margin_check(path) -> dict:
             valid += 1
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             h, w = gray.shape[:2]
-            margin = min(margin_px, max(8, h // 30), max(8, w // 30))
 
             # Measure full-length edge bar depth for each side:
             # A real letterbox/pillarbox has contiguous rows or columns at the border
             # that are almost entirely black across their full extent (>=85% black pixels).
+            # We search up to 15% of frame dimensions to detect genuine letterbox/pillarbox bars.
+            max_search_y = max(16, int(h * 0.15))
+            max_search_x = max(16, int(w * 0.15))
+
             top_bar = 0
-            for r in range(margin):
+            for r in range(max_search_y):
                 if (gray[r, :] < 16).mean() >= 0.85:
                     top_bar += 1
                 else:
                     break
 
             bot_bar = 0
-            for r in range(h - 1, h - 1 - margin, -1):
+            for r in range(h - 1, h - 1 - max_search_y, -1):
                 if (gray[r, :] < 16).mean() >= 0.85:
                     bot_bar += 1
                 else:
                     break
 
             left_bar = 0
-            for c in range(margin):
+            for c in range(max_search_x):
                 if (gray[:, c] < 16).mean() >= 0.85:
                     left_bar += 1
                 else:
                     break
 
             right_bar = 0
-            for c in range(w - 1, w - 1 - margin, -1):
+            for c in range(w - 1, w - 1 - max_search_x, -1):
                 if (gray[:, c] < 16).mean() >= 0.85:
                     right_bar += 1
                 else:
                     break
 
-            side_samples["top"].append(top_bar / margin)
-            side_samples["bottom"].append(bot_bar / margin)
-            side_samples["left"].append(left_bar / margin)
-            side_samples["right"].append(right_bar / margin)
+            # Compute bar depth as percentage of full frame dimension:
+            side_samples["top"].append((top_bar / h) * 100.0 if h else 0.0)
+            side_samples["bottom"].append((bot_bar / h) * 100.0 if h else 0.0)
+            side_samples["left"].append((left_bar / w) * 100.0 if w else 0.0)
+            side_samples["right"].append((right_bar / w) * 100.0 if w else 0.0)
 
         if valid == 0:
             return _visual_unavailable(f"no decodable frames sampled in {path}")
 
-        # Persistent margin: compute median bar percentage per side across sampled frames.
+        # Persistent margin: compute median bar percentage of frame per side across sampled frames.
         side_medians = {
-            side: float(np.median(vals)) * 100.0 for side, vals in side_samples.items()
+            side: float(np.median(vals)) for side, vals in side_samples.items()
         }
         worst_side = max(side_medians, key=side_medians.get)
         worst_pct = side_medians[worst_side]
 
+        # In core/verification/geometry.py, WARNING_BAR_PCT = 3.0%, BLOCKING_BAR_PCT = 8.0%.
+        # Real letterbox/pillarbox bars (e.g. 200px bars in tests or 270px pillarbox) exceed 8-10%.
+        # Small dark borders (e.g. 10-25px streamer webcam bezels or room ceilings) are ~0.5-1.3%
+        # and must not be flagged as letterbox defects.
         return {
             "available": True,
-            "passed": worst_pct < 20.0,
+            "passed": worst_pct < 3.5,
             "worst_margin_pct": round(worst_pct, 2),
             "worst_side": worst_side,
             "sampled_frames": valid,
