@@ -66,6 +66,23 @@ upstream-sync procedure.
     and a third party's VOD, so every filename goes through
     `streamers/paths.py` (`slugify_title` / `safe_output_name` / `assert_within`).
     A raw `f"{title}.mp4"` is a path-traversal and an invalid-Windows-name bug.
+12. **Gate invariants for streamers.**
+    * **Face stability**: continuity breaks on shot cuts and multi-face hops so
+      ordinary camera cuts do not register as face jumps; within-shot jumps are
+      capped at <= 1.25 face widths.
+    * **Visual black margins**: edge bars are measured relative to full frame
+      dimensions (1080×1920) with a 3.5% threshold to block real letterbox/pillarbox
+      defects while accepting natural webcam bezels and room ceilings.
+    * **Camera sway**: disabled (`with_sway=False`) for streamer clips because
+      chaotic stream motion and velocity punch zooms are viral features, not defects.
+    * **Captions on faces**: split-screen layouts place subtitle baselines at
+      `MarginV = 980` (above the `960` divider line in the top speaker's lower chest),
+      guaranteeing 0% overlap with both the top and bottom speakers' faces. Top
+      `TikTokMemeBox` is suppressed in split-screen/stacked modes.
+13. **Daily 2-clip cron schedule.**
+    * Trigger 1: `16:30 UTC` (12:30 PM EDT / 09:30 PM PKT) for target queue slot `02:00 PM EDT`.
+    * Trigger 2: `22:30 UTC` (06:30 PM EDT / 03:30 AM PKT) for target queue slot `08:00 PM EDT`.
+    * Guaranteed >= 1 hour lead time before scheduled social publishing.
 
 ---
 

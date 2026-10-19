@@ -19,10 +19,12 @@ CaseOh, xQc, Adin Ross).
 | --- | --- |
 | Aspect / size | 9:16, 1080×1920 |
 | Duration | **30–45 s** per clip |
-| Captions | Kinetic TikTok-style, upper safe-zone meme hook box |
+| Captions | Kinetic TikTok-style (`MarginV=980` in split-screen to guarantee zero face collision) |
 | Framing | SFace identity lock + 3-tier state machine, auto-stacked webcam/gameplay |
 | Caption hashtags | **2–4** (never fewer, never more) |
-| Publishing | Buffer via **isolated** `STREAMER_BUFFER_*` credentials |
+| Publishing | Buffer via **isolated** `STREAMER_BUFFER_*` credentials (`@kaicenatclipsuncut`) |
+| Daily Schedule | 2 clips daily (`16:30` & `22:30` UTC), queued >= 1 hour ahead of `02:00 PM` & `08:00 PM` EDT slots |
+| Quality Gates | Zero-drift lip-sync, -14.0 LUFS audio, face stability, 3.5% black margin audit |
 
 ---
 
