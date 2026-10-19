@@ -357,7 +357,9 @@ def create_styled_ass_subtitles(
         lines.insert(0, f"Dialogue: 1,0:00:00.00,{hook_dur},TopHeader,,0,0,0,,{{\\fad(150,350)}}{clean_title}")
 
     # TikTok Meme Hook Box (Persistent top white box with bold black text)
-    if top_meme_title:
+    # In split-screen or stacked layouts, the top pane contains a face at y=150-350.
+    # Never render a top meme box there to prevent covering the subject's face/eyes.
+    if top_meme_title and layout_mode not in ("split_screen", "stacked_webcam"):
         raw_title = str(top_meme_title).strip()
         # Strip astral emojis and symbol codepoints that cause '▯' tofu glyphs in ASS font rendering
         clean_meme = re.sub(r'[\U00010000-\U0010ffff]', '', raw_title)

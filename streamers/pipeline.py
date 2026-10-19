@@ -531,6 +531,8 @@ def run_streamer_pipeline(
                 SUBTITLES_DIR
                 / f"streamer_clip_{idx}_{slugify_title(video_id, max_len=24)}.ass",
             )
+            active_layout = getattr(framing, "mode", framing_mode) or "single_smooth"
+            meme_title = None if active_layout in ("split_screen", "stacked_webcam") else vm.title
             try:
                 create_styled_ass_subtitles(
                     segments=clip_segments,
@@ -538,8 +540,9 @@ def run_streamer_pipeline(
                     clip_end=clip_duration,
                     output_ass_path=ass_path,
                     theme_key="tiktok_streamer",
+                    layout_mode=active_layout,
                     watermark=STREAMER_WATERMARK,
-                    top_meme_title=vm.title,
+                    top_meme_title=meme_title,
                 )
             except Exception as exc:
                 print(f"[!] Subtitle generation failed for clip #{idx}: {exc}")
