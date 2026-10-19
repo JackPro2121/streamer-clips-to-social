@@ -111,6 +111,7 @@ jobs:
           SHORT_FORM_MAX_DURATION: '50'
           STREAMER_MIN_CLIP_DURATION: '30'
           STREAMER_MAX_CLIP_DURATION: '45'
+          FACE_JUMP_MAX_FACE_WIDTHS: '1.25'
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           # SECURITY: dispatch inputs are bridged through env and dereferenced as

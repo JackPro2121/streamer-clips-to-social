@@ -245,6 +245,10 @@ def _face_stability_check(path) -> dict:
                     if candidates:
                         chosen = min(candidates, key=lambda c: c[0])[1]
                     else:
+                        # Target face not found within 2.5 face widths.
+                        # This occurs on a camera cut, scene switch, or target hop across different people.
+                        # Break the consecutive chain so inter-shot or inter-person distance is not measured as jitter.
+                        faces.append(None)
                         chosen = max(res, key=lambda r: float(r[2]) * float(r[3]))
                 else:
                     chosen = max(res, key=lambda r: float(r[2]) * float(r[3]))
