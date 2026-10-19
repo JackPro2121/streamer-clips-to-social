@@ -532,7 +532,7 @@ def verify_clip(
             expected_height=STREAMER_OUTPUT_HEIGHT,
             with_mirror=False,   # Streamer clips: mirror check off (fast cam flips)
             with_captions=True,
-            with_sway=True,
+            with_sway=False,     # Streamer clips: sway check off (high-energy motion & punch zooms)
             min_duration_s=min_duration_s,
             max_duration_s=max_duration_s,
         )

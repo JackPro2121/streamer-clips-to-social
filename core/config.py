@@ -340,7 +340,9 @@ SAFE_ZONE_RIGHT = 120     # Reserved for like, comment, share icons
 SUBTITLE_MARGIN_MIN_V = SAFE_ZONE_BOTTOM
 SUBTITLE_MARGIN_MAX_V = OUTPUT_HEIGHT - SAFE_ZONE_TOP - 120
 SUBTITLE_LAYOUT_MARGINS = {
-    "split_screen": 880,
+    "split_screen": 980,
+    "stacked_webcam": 980,
+    "multi_person_room": 980,
     "blur_stack": 400,
     "single_smooth": 460,
     "multi_shot_dynamic": 460,
