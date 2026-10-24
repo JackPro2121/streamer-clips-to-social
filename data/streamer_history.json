@@ -23,7 +23,7 @@
     "kzpxNnAK8Pk": 1,
     "wLb8B2gUO6E": 3,
     "O82vadtsKZE": 1,
-    "vn94r5iI0ws": 1
+    "vn94r5iI0ws": 2
   },
   "errors": {
     "xorMK89ttdg": "no timed transcript available",
@@ -31,6 +31,6 @@
     "kzpxNnAK8Pk": "produced no publishable clip",
     "wLb8B2gUO6E": "produced no publishable clip",
     "O82vadtsKZE": "produced no publishable clip",
-    "vn94r5iI0ws": "produced no publishable clip"
+    "vn94r5iI0ws": "download_clip_segment returned no video_path"
   }
 }
