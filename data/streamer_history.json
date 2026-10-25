@@ -16,14 +16,14 @@
     "B6biwxo0dMQ",
     "nKbiX5PwTcM",
     "Dt36OGjw26Y",
-    "vn94r5iI0ws"
+    "vn94r5iI0ws",
+    "O82vadtsKZE"
   ],
   "attempts": {
     "xorMK89ttdg": 1,
     "pLO8AVvIbkg": 1,
     "kzpxNnAK8Pk": 1,
     "wLb8B2gUO6E": 3,
-    "O82vadtsKZE": 1,
     "vn94r5iI0ws": 3
   },
   "errors": {
@@ -31,7 +31,6 @@
     "pLO8AVvIbkg": "produced no publishable clip",
     "kzpxNnAK8Pk": "produced no publishable clip",
     "wLb8B2gUO6E": "produced no publishable clip",
-    "O82vadtsKZE": "produced no publishable clip",
     "vn94r5iI0ws": "download_clip_segment returned no video_path"
   }
 }
