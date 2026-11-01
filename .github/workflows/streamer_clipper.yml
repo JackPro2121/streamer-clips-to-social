@@ -2,12 +2,16 @@ name: Streamer Viral Clips to Social (V2)
 
 on:
   schedule:
-    # Daily 2 Clips Schedule:
-    # Slot 1 Target: 02:00 PM New York (EDT)
+    # Daily 3 Clips Schedule (Peak US Scroll Times):
+    # Slot 1 Target: 11:00 AM New York (EDT)
+    #   Trigger: 13:30 UTC (09:30 AM EDT / 06:30 PM PKT)
+    #   Render ends ~09:45 AM EDT -> Queued 1h 15m BEFORE 11:00 AM publish slot
+    - cron: '30 13 * * *'
+    # Slot 2 Target: 02:00 PM New York (EDT)
     #   Trigger: 16:30 UTC (12:30 PM EDT / 09:30 PM PKT)
     #   Render ends ~12:45 PM EDT -> Queued 1h 15m BEFORE 2:00 PM publish slot (Guarantees minimum 1h margin)
     - cron: '30 16 * * *'
-    # Slot 2 Target: 08:00 PM New York (EDT)
+    # Slot 3 Target: 08:00 PM New York (EDT)
     #   Trigger: 22:30 UTC (06:30 PM EDT / 03:30 AM PKT)
     #   Render ends ~06:45 PM EDT -> Queued 1h 15m BEFORE 8:00 PM publish slot (Guarantees minimum 1h margin)
     - cron: '30 22 * * *'
