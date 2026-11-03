@@ -32,7 +32,8 @@
     "wLb8B2gUO6E": 3,
     "vn94r5iI0ws": 3,
     "SZA_mBnRNNc": 3,
-    "qLo64OdLKBE": 3
+    "qLo64OdLKBE": 3,
+    "Hhl74xWssbU": 1
   },
   "errors": {
     "xorMK89ttdg": "no timed transcript available",
@@ -41,6 +42,7 @@
     "wLb8B2gUO6E": "produced no publishable clip",
     "vn94r5iI0ws": "download_clip_segment returned no video_path",
     "SZA_mBnRNNc": "no timed transcript available",
-    "qLo64OdLKBE": "produced no publishable clip"
+    "qLo64OdLKBE": "produced no publishable clip",
+    "Hhl74xWssbU": "produced no publishable clip"
   }
 }
