@@ -47,7 +47,8 @@
     "jq83SsgAY_0",
     "1PKa4MZrHfU",
     "ledvFA5h7I0",
-    "THRBZfHK8CQ"
+    "THRBZfHK8CQ",
+    "juFnXA7rhOk"
   ],
   "attempts": {
     "xorMK89ttdg": 1,
@@ -67,8 +68,8 @@
     "uvVPjWM-uDs": 2,
     "ledvFA5h7I0": 3,
     "THRBZfHK8CQ": 3,
-    "juFnXA7rhOk": 2,
-    "QYgduoj4QPY": 1
+    "juFnXA7rhOk": 3,
+    "QYgduoj4QPY": 2
   },
   "errors": {
     "xorMK89ttdg": "no timed transcript available",
@@ -88,7 +89,7 @@
     "uvVPjWM-uDs": "no timed transcript available",
     "ledvFA5h7I0": "no timed transcript available",
     "THRBZfHK8CQ": "no timed transcript available",
-    "juFnXA7rhOk": "download_clip_segment returned no video_path",
+    "juFnXA7rhOk": "no timed transcript available",
     "QYgduoj4QPY": "no timed transcript available"
   }
 }
