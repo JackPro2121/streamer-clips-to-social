@@ -67,7 +67,8 @@
     "uvVPjWM-uDs": 2,
     "ledvFA5h7I0": 3,
     "THRBZfHK8CQ": 3,
-    "juFnXA7rhOk": 1
+    "juFnXA7rhOk": 2,
+    "QYgduoj4QPY": 1
   },
   "errors": {
     "xorMK89ttdg": "no timed transcript available",
@@ -87,6 +88,7 @@
     "uvVPjWM-uDs": "no timed transcript available",
     "ledvFA5h7I0": "no timed transcript available",
     "THRBZfHK8CQ": "no timed transcript available",
-    "juFnXA7rhOk": "no timed transcript available"
+    "juFnXA7rhOk": "download_clip_segment returned no video_path",
+    "QYgduoj4QPY": "no timed transcript available"
   }
 }
