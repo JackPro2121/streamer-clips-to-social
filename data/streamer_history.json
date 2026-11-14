@@ -48,7 +48,8 @@
     "1PKa4MZrHfU",
     "ledvFA5h7I0",
     "THRBZfHK8CQ",
-    "juFnXA7rhOk"
+    "juFnXA7rhOk",
+    "QYgduoj4QPY"
   ],
   "attempts": {
     "xorMK89ttdg": 1,
@@ -69,7 +70,7 @@
     "ledvFA5h7I0": 3,
     "THRBZfHK8CQ": 3,
     "juFnXA7rhOk": 3,
-    "QYgduoj4QPY": 2
+    "QYgduoj4QPY": 3
   },
   "errors": {
     "xorMK89ttdg": "no timed transcript available",
