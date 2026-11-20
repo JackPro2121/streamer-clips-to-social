@@ -55,7 +55,8 @@
     "wKmIqTs2LoE",
     "7mjhCbFi9Wk",
     "VZqAPdUvqnQ",
-    "H-4PyJlhI9g"
+    "H-4PyJlhI9g",
+    "yX4DH_msPkI"
   ],
   "attempts": {
     "xorMK89ttdg": 1,
@@ -78,8 +79,7 @@
     "juFnXA7rhOk": 3,
     "QYgduoj4QPY": 3,
     "_AY5krZErfg": 3,
-    "H-4PyJlhI9g": 3,
-    "yX4DH_msPkI": 1
+    "H-4PyJlhI9g": 3
   },
   "errors": {
     "xorMK89ttdg": "no timed transcript available",
@@ -102,7 +102,6 @@
     "juFnXA7rhOk": "no timed transcript available",
     "QYgduoj4QPY": "no timed transcript available",
     "_AY5krZErfg": "produced no publishable clip",
-    "H-4PyJlhI9g": "no timed transcript available",
-    "yX4DH_msPkI": "produced no publishable clip"
+    "H-4PyJlhI9g": "no timed transcript available"
   }
 }
