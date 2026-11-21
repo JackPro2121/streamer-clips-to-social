@@ -82,7 +82,8 @@
     "QYgduoj4QPY": 3,
     "_AY5krZErfg": 3,
     "H-4PyJlhI9g": 3,
-    "LHoHInbPkk0": 1
+    "LHoHInbPkk0": 2,
+    "LZXLSifc3PI": 1
   },
   "errors": {
     "xorMK89ttdg": "no timed transcript available",
@@ -106,6 +107,7 @@
     "QYgduoj4QPY": "no timed transcript available",
     "_AY5krZErfg": "produced no publishable clip",
     "H-4PyJlhI9g": "no timed transcript available",
-    "LHoHInbPkk0": "no timed transcript available"
+    "LHoHInbPkk0": "no timed transcript available",
+    "LZXLSifc3PI": "download_clip_segment returned no video_path"
   }
 }
