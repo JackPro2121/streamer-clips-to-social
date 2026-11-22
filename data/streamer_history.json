@@ -60,7 +60,8 @@
     "5tdj53ioJ-c",
     "dSDUAAr-w_g",
     "LHoHInbPkk0",
-    "LZXLSifc3PI"
+    "LZXLSifc3PI",
+    "S3NEzaumEnQ"
   ],
   "attempts": {
     "xorMK89ttdg": 1,
@@ -84,8 +85,7 @@
     "QYgduoj4QPY": 3,
     "_AY5krZErfg": 3,
     "H-4PyJlhI9g": 3,
-    "LHoHInbPkk0": 3,
-    "S3NEzaumEnQ": 1
+    "LHoHInbPkk0": 3
   },
   "errors": {
     "xorMK89ttdg": "no timed transcript available",
@@ -109,7 +109,6 @@
     "QYgduoj4QPY": "no timed transcript available",
     "_AY5krZErfg": "produced no publishable clip",
     "H-4PyJlhI9g": "no timed transcript available",
-    "LHoHInbPkk0": "no timed transcript available",
-    "S3NEzaumEnQ": "produced no publishable clip"
+    "LHoHInbPkk0": "no timed transcript available"
   }
 }
